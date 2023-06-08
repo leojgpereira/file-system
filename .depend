@@ -1,0 +1,9 @@
+-Wall
+-O1
+-c
+-MM
+blockFake.c
+fs.c
+shell.c
+shellutilFake.c
+util.c
