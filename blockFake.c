@@ -41,6 +41,8 @@ void block_write( int block, char *mem) {
     
 	ret = fwrite( mem, 1, BLOCK_SIZE, fd);
 	assert( ret == BLOCK_SIZE);
+
+	fflush(fd);
 }
 
 void bzero_block( char *block) {

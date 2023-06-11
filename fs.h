@@ -3,6 +3,9 @@
 
 #define FS_SIZE 2048
 
+/* Define o número mágico do nosso sistma de arquivos */
+#define MAGIC_NUMBER "!CFS"
+
 void fs_init( void);
 int fs_mkfs( void);
 int fs_open( char *fileName, int flags);
