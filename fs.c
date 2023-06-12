@@ -11,37 +11,100 @@
 #define ERROR_MSG(m)
 #endif
 
+void set_bit(char* buffer, int index, int bit) {
+    buffer[index] = ((1 << bit) | buffer[index]);
+}
+
 void fs_init( void) {
     block_init();
 
-    /* Cria variável buffer e lẽ o primeiro bloco do disco (superbloco) e guarda na variável buffer */
-    char buffer[512] = {0};
+    /* Aloca memória para a variável buffer */
+    char* buffer = (char*) malloc(512 * sizeof(char));
+
+    /* Zera todos os bytes da variável buffer */
+    bzero(buffer, 512);
+    /* Lê o primeiro bloco do disco (superbloco) e armazena na variável buffer */
     block_read(0, buffer);
 
+    /* Inicializa a estrutura superblock */
     Superblock* superblock = (Superblock*) malloc(sizeof(Superblock));
+    /* Copia o conteúdo do primeiro bloco para a estrutura superblock */
     bcopy((unsigned char*) buffer, (unsigned char*) superblock, sizeof(Superblock));
 
-    /* Checa se o número mágico corresponde ao número mágico do nosso sistema de arquivos */
+    /* Checa se o disco está formatado comparando o valor do número mágico */
     if(same_string(superblock->magicNumber, MAGIC_NUMBER)) {
         printf("Disco formatado!\n");
     } else {
         printf("Disco não formatado!\n");
+        /* Invoca a função responsável por formatar o disco */
         fs_mkfs();
     }
 }
 
 int fs_mkfs( void) {
+    /* Inicializa a estrutura superblock */
     Superblock* superblock = (Superblock*) malloc(sizeof(Superblock));
+
+    /* Inicializa as informações do superbloco */
     bcopy((unsigned char*) MAGIC_NUMBER, (unsigned char*) superblock->magicNumber, 5);
     superblock->diskSize = FS_SIZE;
+    superblock->mountedAt = ROOT_DIRECTORY_INODE;
     superblock->numberOfInodes = NUMBER_OF_INODES;
     superblock->numberOfDataBlocks = NUMBER_OF_DATA_BLOCKS;
+    superblock->iMapStart = I_MAP_START;
+    superblock->dMapStart = D_MAP_START;
     superblock->inodeStart = INODE_START;
     superblock->dataBlockStart = DATA_BLOCK_START;
 
-    char buffer[512] = {0};
+    /* Aloca memória para a variável buffer */
+    char* buffer = (char*) malloc(512 * sizeof(char));
+
+    /* Zera os bytes do buffer, copia os bytes da estrutura superblock para o buffer e escreve o conteúdo no primeiro bloco (superblock) do disco */
+    bzero(buffer, 512);
     bcopy((unsigned char*) superblock, (unsigned char*) buffer, sizeof(Superblock));
     block_write(0, buffer);
+
+    /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro i-node para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos i-nodes */
+    bzero(buffer, 512);
+    set_bit(buffer, 0, 7);
+    block_write(I_MAP_START, buffer);
+
+    /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro bloco de dados para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos blocos de dados */
+    bzero(buffer, 512);
+    set_bit(buffer, 0, 7);
+    block_write(D_MAP_START, buffer);
+
+    /* Cria vetor de i-nodes */
+    Inode* inodes = (Inode*) malloc(NUMBER_OF_INODES * sizeof(Inode));
+
+    /* Define o primeiro i-node como sendo o i-node correspondente ao diretório raiz */
+    inodes[0].isDirectory = 1;
+    inodes[0].direct1 = DATA_BLOCK_START;
+
+    /* Copia o vetor de i-nodes para a variável buffer e escreve o conteúdo nos blocos alocados para armazenar i-nodes */
+    buffer = realloc(buffer, 22528);
+    bcopy((unsigned char*) inodes, (unsigned char*) buffer, NUMBER_OF_INODES * sizeof(Inode));
+
+    for(int i = INODE_START; i < INODE_END + 1; i++) {
+        block_write(i, &buffer[(i - INODE_START) * 512]);
+    }
+
+    /* Guarda o nome das duas entradas iniciais de um diretório */
+    char dirEntry1[MAX_FILE_NAME] = ".";
+    char dirEntry2[MAX_FILE_NAME] = "..";
+
+    /* Inicializa um vetor de diretórios e insere as entradas '.' e '..' inicialmente como entradas do diretório raiz */
+    Directory* rootDirectory = (Directory*) malloc(2 * sizeof(Directory));
+    bcopy((unsigned char*) dirEntry1, (unsigned char*) rootDirectory[0].name, 32);
+    rootDirectory[0].inode = 0;
+    bcopy((unsigned char*) dirEntry2, (unsigned char*) rootDirectory[1].name, 32);
+    rootDirectory[1].inode = 0;
+
+    /* Escreve no primeiro bloco de dados o diretório raiz */
+    buffer = realloc(buffer, 512);
+    bzero(buffer, 512);
+    bcopy((unsigned char*) rootDirectory, (unsigned char*) buffer, 2* sizeof(Directory));
+    block_write(DATA_BLOCK_START, buffer);
 
     return -1;
 }

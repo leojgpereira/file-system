@@ -3,22 +3,17 @@
 
 #define FS_SIZE 2048
 
-/* Define o número mágico do nosso sistma de arquivos */
 #define MAGIC_NUMBER "!CFS"
-#define NUMBER_OF_INODES 320
-#define NUMBER_OF_DATA_BLOCKS 2044
-#define INODE_START 1
-#define DATA_BLOCK_START 4
+#define NUMBER_OF_INODES 512
+#define NUMBER_OF_DATA_BLOCKS 2001
+#define INODE_START 3
+#define INODE_END 46
+#define DATA_BLOCK_START 47
+#define I_MAP_START 1
+#define D_MAP_START 2
+#define ROOT_DIRECTORY_INODE 0
 
-/* Struct que representa o superbloco (bloco nº 0 do volume) */
-typedef struct __attribute__((packed)) {
-    char magicNumber[5];
-    int diskSize; /* Tamanho do disco (em número de blocos) */
-    int numberOfInodes;
-    int numberOfDataBlocks;
-    int inodeStart;
-    int dataBlockStart;
-} Superblock;
+void set_bit(char* buffer, int index, int bit);
 
 void fs_init( void);
 int fs_mkfs( void);
@@ -37,3 +32,34 @@ int fs_stat( char *fileName, fileStat *buf);
 #define MAX_FILE_NAME 32
 #define MAX_PATH_NAME 256  // This is the maximum supported "full" path len, eg: /foo/bar/test.txt, rather than the maximum individual filename len.
 #endif
+
+typedef struct __attribute__((packed)) {
+    char magicNumber[5];
+    int diskSize;
+    int mountedAt;
+    int numberOfInodes;
+    int numberOfDataBlocks;
+    int iMapStart;
+    int dMapStart;
+    int inodeStart;
+    int dataBlockStart;
+} Superblock;
+
+typedef struct __attribute__((packed)) {
+    int isDirectory;
+    int direct1;
+    int direct2;
+    int direct3;
+    int direct4;
+    int direct5;
+    int direct6;
+    int direct7;
+    int direct8;
+    int direct9;
+    int direct10;
+} Inode;
+
+typedef struct __attribute__((packed)) {
+    char name[MAX_FILE_NAME];
+    int inode;
+} Directory;
