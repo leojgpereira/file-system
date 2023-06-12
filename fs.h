@@ -12,8 +12,7 @@
 #define I_MAP_START 1
 #define D_MAP_START 2
 #define ROOT_DIRECTORY_INODE 0
-
-void set_bit(char* buffer, int index, int bit);
+#define FD_TABLE_SIZE 5
 
 void fs_init( void);
 int fs_mkfs( void);
@@ -36,7 +35,7 @@ int fs_stat( char *fileName, fileStat *buf);
 typedef struct __attribute__((packed)) {
     char magicNumber[5];
     int diskSize;
-    int mountedAt;
+    int workingDirectory;
     int numberOfInodes;
     int numberOfDataBlocks;
     int iMapStart;
@@ -63,3 +62,13 @@ typedef struct __attribute__((packed)) {
     char name[MAX_FILE_NAME];
     int inode;
 } Directory;
+
+typedef struct __attribute__((packed)) {
+    int fd;
+    char* name;
+    int offset;
+    int mode;
+} File;
+
+void set_bit(char* buffer, int index, int bit);
+File* init_fd_table();
