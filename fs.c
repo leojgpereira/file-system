@@ -11,32 +11,38 @@
 #define ERROR_MSG(m)
 #endif
 
-typedef struct {
-    int magicNumber;
-} Superblock;
-
 void fs_init( void) {
     block_init();
 
-    /* Cria variável buffer */
+    /* Cria variável buffer e lẽ o primeiro bloco do disco (superbloco) e guarda na variável buffer */
     char buffer[512] = {0};
-    /* Lẽ o primeiro bloco do disco (superbloco) e guarda na variável buffer */
     block_read(0, buffer);
 
-    /* Copia os 4 primeiros bytes do superbloco para a variável magicNumber */
-    unsigned char magicNumber[5];
-    bcopy((unsigned char*) buffer, magicNumber, 4);
-    magicNumber[4] = '\0';
+    Superblock* superblock = (Superblock*) malloc(sizeof(Superblock));
+    bcopy((unsigned char*) buffer, (unsigned char*) superblock, sizeof(Superblock));
 
     /* Checa se o número mágico corresponde ao número mágico do nosso sistema de arquivos */
-    if(same_string((char*) magicNumber, MAGIC_NUMBER)) {
+    if(same_string(superblock->magicNumber, MAGIC_NUMBER)) {
         printf("Disco formatado!\n");
     } else {
         printf("Disco não formatado!\n");
+        fs_mkfs();
     }
 }
 
 int fs_mkfs( void) {
+    Superblock* superblock = (Superblock*) malloc(sizeof(Superblock));
+    bcopy((unsigned char*) MAGIC_NUMBER, (unsigned char*) superblock->magicNumber, 5);
+    superblock->diskSize = FS_SIZE;
+    superblock->numberOfInodes = NUMBER_OF_INODES;
+    superblock->numberOfDataBlocks = NUMBER_OF_DATA_BLOCKS;
+    superblock->inodeStart = INODE_START;
+    superblock->dataBlockStart = DATA_BLOCK_START;
+
+    char buffer[512] = {0};
+    bcopy((unsigned char*) superblock, (unsigned char*) buffer, sizeof(Superblock));
+    block_write(0, buffer);
+
     return -1;
 }
 
