@@ -263,7 +263,84 @@ int fs_mkdir(char *fileName) {
 }
 
 int fs_rmdir( char *fileName) {
-    return -1;
+    /* Verifica se já existe um diretório com o mesmo nome */
+    if(!dir_exists(fileName)) {
+        return -1;
+    }
+
+    if(same_string(fileName, ".") || same_string(fileName, "..")) {
+        return -1;
+    }
+
+    /* Recupera o inode do diretório atual */
+    Inode* inode = find_inode(superblock->workingDirectory);
+    /* Recupera a lista de diretórios dentro do diretório atual */
+    Directory* directories = get_directories(superblock->workingDirectory);
+
+    /* Verifica se foi retornado uma lista de diretórios */
+    if(directories == NULL)
+        return -1;
+
+    /* Percorre a lista de diretórios */
+    for(int i = 0; i < (inode->size / sizeof(Directory)); i++) {
+        if(same_string(directories[i].name, fileName)) {
+            printf("Deleted\n");
+
+            Inode* dirInode = find_inode(directories[i].inode);
+
+            if(dirInode->type != 1 || dirInode->size != (2 * sizeof(Directory)))
+                return -1;
+
+            block_read(I_MAP_BLOCK, buffer);
+
+            char imap[64];
+            bcopy((unsigned char*) buffer, (unsigned char*) imap, 64);
+            printf("--------%d %d %d\n", directories[i].inode, i, inode->size);
+            unset_bit(imap, directories[i].inode / 8, directories[i].inode % 8);
+            bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
+            block_write(I_MAP_BLOCK, buffer);
+
+            for(int j = i; j < (inode->size / sizeof(Directory)) - 1; j++) {
+                directories[j] = directories[j + 1];
+            }
+
+            inode->size -= sizeof(Directory);
+            save_inode(inode, superblock->workingDirectory);
+
+            int numBlocks = (inode->size / 512) + 1;
+
+            buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
+            bcopy((unsigned char*) directories, (unsigned char*) buffer, inode->size);
+
+            for(int i = 0; i < numBlocks; i++) {
+                block_write(inode->direct[i], &buffer[i * 512]);
+            }
+
+            block_read(D_MAP_BLOCK, buffer);
+
+            char dmap[251];
+            bcopy((unsigned char*) buffer, (unsigned char*) dmap, 251);
+
+            numBlocks = (dirInode->size / 512) + 1;
+            for(int i = 0; i < numBlocks; i++) {
+                unset_bit(dmap, (dirInode->direct[i] - 47) / 8, (dirInode->direct[i] - 47) % 8);
+            }
+            
+            bcopy((unsigned char*) dmap, (unsigned char*) buffer, 251);
+            block_write(D_MAP_BLOCK, buffer);
+
+            free(buffer);
+            free(dirInode);
+
+            break;
+        }
+    }
+
+    /* Libera memória alocada dinâmicamente */
+    free(directories);
+    free(inode);
+
+    return 0;
 }
 
 int fs_cd( char *dirName) {
@@ -296,7 +373,7 @@ int fs_ls() {
     /* Percorre a lista de diretórios */
     for(int i = 0; i < (inode->size / sizeof(Directory)); i++) {
         printf("\033[1;34m");
-        printf("%s\n", directories[i].name);
+        printf("%s -> %d\n", directories[i].name, directories[i].inode);
         printf("\033[0m");
     }
 

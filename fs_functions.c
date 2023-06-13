@@ -12,8 +12,13 @@ File* init_fd_table() {
 }
 
 void set_bit(char* bytes, int index, int n) {
-    /* Seta n-esimo bit de um byte na posição index de um vetor de bytes */
+    /* Seta n-esimo bit de um byte na posição index de um vetor de bytes para 1 */
     bytes[index] = ((1 << n) | bytes[index]);
+}
+
+void unset_bit(char* bytes, int index, int n) {
+    /* Seta n-esimo bit de um byte na posição index de um vetor de bytes para 0 */
+    bytes[index] = bytes[index] & (~(1 << (7 - n)));
 }
 
 int get_bit(char* bytes, int index, int n) {
@@ -186,8 +191,6 @@ int dir_exists(char* dirname) {
             /* Seta variável de controle para verdadeiro */
             exists = 1;
         }
-
-        printf("%s --> %d\n", directories[i].name, exists);
     }
 
     /* Libera memória alocada dinâmicamente */
