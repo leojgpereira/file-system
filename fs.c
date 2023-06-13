@@ -1,8 +1,9 @@
+#include <stdlib.h>
+#include <math.h>
 #include "util.h"
 #include "common.h"
 #include "block.h"
 #include "fs.h"
-#include <stdlib.h>
 
 #ifdef FAKE
 #include <stdio.h>
@@ -13,33 +14,15 @@
 
 Superblock* superblock;
 Inode* inodes;
+char* buffer;
 
-void set_bit(char* buffer, int index, int bit) {
-    buffer[index] = ((1 << bit) | buffer[index]);
-}
-
-int get_bit(char byte, int index, int offset) {
-    return 1 & (byte >> (offset - 1));
-}
-
-File* init_fd_table() {
-    File* fd_table = (File*) malloc(FD_TABLE_SIZE * sizeof(File));
-
-    for(int i = 0; i < FD_TABLE_SIZE; i++) {
-        fd_table[i].fd = -1;
-        fd_table[i].name = NULL;
-        fd_table[i].offset = -1;
-        fd_table[i].mode = 0;
-    }
-
-    return fd_table;
-}
+#include "fs_functions.c"
 
 void fs_init( void) {
     block_init();
 
     /* Aloca memória para a variável buffer */
-    char* buffer = (char*) malloc(512 * sizeof(char));
+    buffer = (char*) malloc(512 * sizeof(char));
 
     /* Zera todos os bytes da variável buffer */
     bzero(buffer, 512);
@@ -51,18 +34,22 @@ void fs_init( void) {
     /* Copia o conteúdo do primeiro bloco para a estrutura superblock */
     bcopy((unsigned char*) buffer, (unsigned char*) superblock, sizeof(Superblock));
 
+    free(buffer);
+
     /* Checa se o disco está formatado comparando o valor do número mágico */
     if(same_string(superblock->magicNumber, MAGIC_NUMBER)) {
         printf("Disco formatado!\n");
     } else {
         printf("Disco não formatado!\n");
+
+        free(superblock);
+
         /* Invoca a função responsável por formatar o disco */
         fs_mkfs();
     }
 
     /* Cria tabela de descritores de arquivo em memória */
     File* fd_table = init_fd_table();
-    // printf("////---- %d\n", fd_table[0].offset);
 }
 
 int fs_mkfs( void) {
@@ -81,7 +68,7 @@ int fs_mkfs( void) {
     superblock->dataBlockStart = DATA_BLOCK_START;
 
     /* Aloca memória para a variável buffer */
-    char* buffer = (char*) malloc(512 * sizeof(char));
+    buffer = (char*) malloc(512 * sizeof(char));
 
     /* Zera os bytes do buffer, copia os bytes da estrutura superblock para o buffer e escreve o conteúdo no primeiro bloco (superblock) do disco */
     bzero(buffer, 512);
@@ -102,8 +89,9 @@ int fs_mkfs( void) {
     inodes = (Inode*) malloc(NUMBER_OF_INODES * sizeof(Inode));
 
     /* Define o primeiro i-node como sendo o i-node correspondente ao diretório raiz */
-    inodes[0].isDirectory = 1;
-    inodes[0].direct1 = DATA_BLOCK_START;
+    inodes[0].type = 1;
+    inodes[0].size = 2 * sizeof(Directory);
+    inodes[0].direct[0] = DATA_BLOCK_START;
 
     /* Copia o vetor de i-nodes para a variável buffer e escreve o conteúdo nos blocos alocados para armazenar i-nodes */
     buffer = realloc(buffer, 22528);
@@ -127,31 +115,20 @@ int fs_mkfs( void) {
     /* Escreve no primeiro bloco de dados o diretório raiz */
     buffer = realloc(buffer, 512);
     bzero(buffer, 512);
-    bcopy((unsigned char*) rootDirectory, (unsigned char*) buffer, 2* sizeof(Directory));
+    bcopy((unsigned char*) rootDirectory, (unsigned char*) buffer, 2 * sizeof(Directory));
     block_write(DATA_BLOCK_START, buffer);
+
+    free(buffer);
+    free(inodes);
+    free(rootDirectory);
 
     return 0;
 }
 
 int fs_open(char *fileName, int flags) {
-    /* Aloca memória para a variável buffer */
-    char* buffer = (char*) malloc(1024 * sizeof(char));
+    Inode* inode = find_inode(superblock->workingDirectory);
 
-    /* Zera todos os bytes da variável buffer e copia o inode correspondente para o buffer */
-    bzero(buffer, 1024);
-
-    int start = (superblock->workingDirectory * 44) / 512;
-    int end = (start + 43) / 512;
-
-    for(int i = start; i < end + 1; i++) {
-        block_read(i + INODE_START, buffer);
-    }
-
-    /* Copia os bytes do buffer para uma estrutura inode */
-    Inode* inode = (Inode*) malloc(sizeof(Inode));
-    bcopy((unsigned char*) &buffer[(superblock->workingDirectory * 44) % 512], (unsigned char*) inode, sizeof(Inode));
-
-    // printf("***%d\n", inode->isDirectory);
+    printf("***%d\n", inode->type);
 
 
     return 5;
@@ -173,8 +150,126 @@ int fs_lseek( int fd, int offset) {
     return -1;
 }
 
-int fs_mkdir( char *fileName) {
-    return -1;
+int fs_mkdir(char *fileName) {
+    printf("-----%d %lu - %s\n", strlen(fileName), sizeof(Directory), fileName);
+
+    buffer = (char*) malloc(1024 * sizeof(char));
+
+    int inodeNumber = -1;
+    char imap[64];
+    block_read(1, buffer);
+    bcopy((unsigned char*) buffer, (unsigned char*) imap, 64);
+
+    for(int i = 0; i < (int) ceil(NUMBER_OF_INODES / 8); i++) {
+        for(int j = 7; j > -1; j--) {
+            int bit = get_bit(imap, i, j);
+            printf("bit = %d\n", bit);
+
+            if(bit == 0) {
+                inodeNumber = 7 - j + (i * 8);
+                set_bit(imap, i, j);
+                break;
+            }
+        }
+
+        if(inodeNumber != -1)
+            break;
+    }
+
+    printf("inode number = %d is free\n", inodeNumber);
+
+    bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
+    block_write(1, buffer);
+
+    if(inodeNumber == -1)
+        return -1;
+
+    //////////////////////////////////////
+
+    int blockNumber = -1;
+    char dmap[251];
+    block_read(2, buffer);
+    bcopy((unsigned char*) buffer, (unsigned char*) dmap, 251);
+
+    for(int i = 0; i < (int) ceil(NUMBER_OF_DATA_BLOCKS / 8); i++) {
+        for(int j = 7; j > -1; j--) {
+            int bit = get_bit(dmap, i, j);
+            printf("bit = %d\n", bit);
+
+            if(bit == 0) {
+                blockNumber = 7 - j + (i * 8);
+                set_bit(dmap, i, j);
+                break;
+            }
+        }
+
+        if(blockNumber != -1)
+            break;
+    }
+
+    printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
+
+    bcopy((unsigned char*) dmap, (unsigned char*) buffer, 251);
+    block_write(2, buffer);
+
+    if(blockNumber == -1)
+        return -1;
+
+    //////////////////////////////////////
+
+    char dirEntry1[MAX_FILE_NAME] = ".";
+    char dirEntry2[MAX_FILE_NAME] = "..";
+
+    Directory* newDirectory = (Directory*) malloc(2 * sizeof(Directory));
+    bcopy((unsigned char*) dirEntry1, (unsigned char*) newDirectory[0].name, 32);
+    newDirectory[0].inode = inodeNumber;
+    bcopy((unsigned char*) dirEntry2, (unsigned char*) newDirectory[1].name, 32);
+    newDirectory[1].inode = superblock->workingDirectory;
+
+    printf(". inode = %d, .. inode = %d\n", newDirectory[0].inode, newDirectory[1].inode);
+
+    bzero(buffer, 512);
+    bcopy((unsigned char*) newDirectory, (unsigned char*) buffer, 2 * sizeof(Directory));
+    block_write(blockNumber + DATA_BLOCK_START, buffer);
+
+    Inode* newInode = (Inode*) malloc(sizeof(Inode));
+    newInode->type = 1;
+    newInode->size = 2 * sizeof(Directory);
+    newInode->direct[0] = blockNumber + DATA_BLOCK_START;
+
+    save_inode(newInode, inodeNumber);
+
+    //////////////////////////////////////
+
+    Inode* inode = find_inode(superblock->workingDirectory);
+    printf("***%d\n", inode->direct[0]);
+
+    int blockStart = inode->size / 512;
+    int blockEnd = (inode->size + sizeof(Directory)) / 512;
+    int byteStart = inode->size % 512;
+
+    printf("***%d %d %d\n", blockStart, blockEnd, byteStart);
+
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    Directory* directory = (Directory*) malloc(sizeof(Directory));
+    bcopy((unsigned char*) fileName, (unsigned char*) directory->name, strlen(fileName) + 1);
+    directory->inode = inodeNumber;
+    printf("***%s is allocated to inode number %d\n", directory->name, directory->inode);
+
+    bcopy((unsigned char*) directory, (unsigned char*) &buffer[byteStart], sizeof(Directory));
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    free(buffer);
+    free(inode);
+    free(directory);
+
+    return 0;
+
 }
 
 int fs_rmdir( char *fileName) {

@@ -45,17 +45,9 @@ typedef struct __attribute__((packed)) {
 } Superblock;
 
 typedef struct __attribute__((packed)) {
-    int isDirectory;
-    int direct1;
-    int direct2;
-    int direct3;
-    int direct4;
-    int direct5;
-    int direct6;
-    int direct7;
-    int direct8;
-    int direct9;
-    int direct10;
+    int type;
+    int size;
+    int direct[9];
 } Inode;
 
 typedef struct __attribute__((packed)) {
@@ -69,6 +61,3 @@ typedef struct __attribute__((packed)) {
     int offset;
     int mode;
 } File;
-
-void set_bit(char* buffer, int index, int bit);
-File* init_fd_table();
