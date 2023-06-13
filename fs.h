@@ -9,8 +9,8 @@
 #define INODE_START 3
 #define INODE_END 46
 #define DATA_BLOCK_START 47
-#define I_MAP_START 1
-#define D_MAP_START 2
+#define I_MAP_BLOCK 1
+#define D_MAP_BLOCK 2
 #define ROOT_DIRECTORY_INODE 0
 #define FD_TABLE_SIZE 5
 

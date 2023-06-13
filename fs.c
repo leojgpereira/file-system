@@ -12,10 +12,16 @@
 #define ERROR_MSG(m)
 #endif
 
+/* Variáveis principais utilizadas no sistema de arquivo */
 Superblock* superblock;
 Inode* inodes;
 char* buffer;
 
+/* Guarda o nome das duas entradas iniciais de um diretório */
+char dirEntry1[MAX_FILE_NAME] = ".";
+char dirEntry2[MAX_FILE_NAME] = "..";
+
+/* Inclui funções adicionais que criamos para uma melhor organização do código */
 #include "fs_functions.c"
 
 void fs_init( void) {
@@ -34,6 +40,7 @@ void fs_init( void) {
     /* Copia o conteúdo do primeiro bloco para a estrutura superblock */
     bcopy((unsigned char*) buffer, (unsigned char*) superblock, sizeof(Superblock));
 
+    /* Libera memória alocada dinâmicamente */
     free(buffer);
 
     /* Checa se o disco está formatado comparando o valor do número mágico */
@@ -41,7 +48,8 @@ void fs_init( void) {
         printf("Disco formatado!\n");
     } else {
         printf("Disco não formatado!\n");
-
+        
+        /* Libera memória alocada dinâmicamente */
         free(superblock);
 
         /* Invoca a função responsável por formatar o disco */
@@ -62,8 +70,8 @@ int fs_mkfs( void) {
     superblock->workingDirectory = ROOT_DIRECTORY_INODE;
     superblock->numberOfInodes = NUMBER_OF_INODES;
     superblock->numberOfDataBlocks = NUMBER_OF_DATA_BLOCKS;
-    superblock->iMapStart = I_MAP_START;
-    superblock->dMapStart = D_MAP_START;
+    superblock->iMapStart = I_MAP_BLOCK;
+    superblock->dMapStart = D_MAP_BLOCK;
     superblock->inodeStart = INODE_START;
     superblock->dataBlockStart = DATA_BLOCK_START;
 
@@ -78,12 +86,12 @@ int fs_mkfs( void) {
     /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro i-node para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos i-nodes */
     bzero(buffer, 512);
     set_bit(buffer, 0, 7);
-    block_write(I_MAP_START, buffer);
+    block_write(I_MAP_BLOCK, buffer);
 
     /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro bloco de dados para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos blocos de dados */
     bzero(buffer, 512);
     set_bit(buffer, 0, 7);
-    block_write(D_MAP_START, buffer);
+    block_write(D_MAP_BLOCK, buffer);
 
     /* Cria vetor de i-nodes */
     inodes = (Inode*) malloc(NUMBER_OF_INODES * sizeof(Inode));
@@ -101,10 +109,6 @@ int fs_mkfs( void) {
         block_write(i, &buffer[(i - INODE_START) * 512]);
     }
 
-    /* Guarda o nome das duas entradas iniciais de um diretório */
-    char dirEntry1[MAX_FILE_NAME] = ".";
-    char dirEntry2[MAX_FILE_NAME] = "..";
-
     /* Inicializa um vetor de diretórios e insere as entradas '.' e '..' inicialmente como entradas do diretório raiz */
     Directory* rootDirectory = (Directory*) malloc(2 * sizeof(Directory));
     bcopy((unsigned char*) dirEntry1, (unsigned char*) rootDirectory[0].name, 32);
@@ -118,6 +122,7 @@ int fs_mkfs( void) {
     bcopy((unsigned char*) rootDirectory, (unsigned char*) buffer, 2 * sizeof(Directory));
     block_write(DATA_BLOCK_START, buffer);
 
+    /* Libera memória alocada dinâmicamente */
     free(buffer);
     free(inodes);
     free(rootDirectory);
@@ -151,125 +156,105 @@ int fs_lseek( int fd, int offset) {
 }
 
 int fs_mkdir(char *fileName) {
-    printf("-----%d %lu - %s\n", strlen(fileName), sizeof(Directory), fileName);
+    /* Aloca memória para variável buffer */
+    buffer = (char*) malloc(512 * sizeof(char));
 
-    buffer = (char*) malloc(1024 * sizeof(char));
-
-    int inodeNumber = -1;
+    /* Declara vetor de bits para guardar o vetor de bits dos inodes */
     char imap[64];
-    block_read(1, buffer);
-    bcopy((unsigned char*) buffer, (unsigned char*) imap, 64);
 
-    for(int i = 0; i < (int) ceil(NUMBER_OF_INODES / 8); i++) {
-        for(int j = 7; j > -1; j--) {
-            int bit = get_bit(imap, i, j);
-            printf("bit = %d\n", bit);
+    /* Encontra inode livre */
+    int inodeNumber = find_free_bit_number(imap, I_MAP_BLOCK);
 
-            if(bit == 0) {
-                inodeNumber = 7 - j + (i * 8);
-                set_bit(imap, i, j);
-                break;
-            }
-        }
-
-        if(inodeNumber != -1)
-            break;
-    }
-
-    printf("inode number = %d is free\n", inodeNumber);
-
-    bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
-    block_write(1, buffer);
-
+    /* Checa se houve sucesso em encontrar um inode livre */
     if(inodeNumber == -1)
         return -1;
 
-    //////////////////////////////////////
+    printf("inode number = %d is free\n", inodeNumber);
 
-    int blockNumber = -1;
+    /* Salva mapa de bits atualizado no disco */
+    save_bitmap(imap, I_MAP_BLOCK);
+
+    /* Declara vetor de bits para guardar o vetor de bits dos blocos de dados */
     char dmap[251];
-    block_read(2, buffer);
-    bcopy((unsigned char*) buffer, (unsigned char*) dmap, 251);
 
-    for(int i = 0; i < (int) ceil(NUMBER_OF_DATA_BLOCKS / 8); i++) {
-        for(int j = 7; j > -1; j--) {
-            int bit = get_bit(dmap, i, j);
-            printf("bit = %d\n", bit);
+    /* Encontra bloco de dados livre */
+    int blockNumber = find_free_bit_number(dmap, D_MAP_BLOCK);
 
-            if(bit == 0) {
-                blockNumber = 7 - j + (i * 8);
-                set_bit(dmap, i, j);
-                break;
-            }
-        }
-
-        if(blockNumber != -1)
-            break;
-    }
-
-    printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
-
-    bcopy((unsigned char*) dmap, (unsigned char*) buffer, 251);
-    block_write(2, buffer);
-
+    /* Checa se houve sucesso em encontrar um bloco de dados livre */
     if(blockNumber == -1)
         return -1;
 
-    //////////////////////////////////////
+    printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
 
-    char dirEntry1[MAX_FILE_NAME] = ".";
-    char dirEntry2[MAX_FILE_NAME] = "..";
+    /* Salva mapa de bits atualizado no disco */
+    save_bitmap(dmap, D_MAP_BLOCK);
 
+    /* Cria as entradas . e .. de um diretório vazio */
     Directory* newDirectory = (Directory*) malloc(2 * sizeof(Directory));
     bcopy((unsigned char*) dirEntry1, (unsigned char*) newDirectory[0].name, 32);
     newDirectory[0].inode = inodeNumber;
     bcopy((unsigned char*) dirEntry2, (unsigned char*) newDirectory[1].name, 32);
     newDirectory[1].inode = superblock->workingDirectory;
 
-    printf(". inode = %d, .. inode = %d\n", newDirectory[0].inode, newDirectory[1].inode);
-
+    /* Escreve no disco o diretório criado no bloco correspondente ao diretório */
     bzero(buffer, 512);
     bcopy((unsigned char*) newDirectory, (unsigned char*) buffer, 2 * sizeof(Directory));
     block_write(blockNumber + DATA_BLOCK_START, buffer);
 
+    printf(". inode = %d, .. inode = %d\n", newDirectory[0].inode, newDirectory[1].inode);
+
+    /* Aloca inode para o novo diretório criado */
     Inode* newInode = (Inode*) malloc(sizeof(Inode));
     newInode->type = 1;
     newInode->size = 2 * sizeof(Directory);
     newInode->direct[0] = blockNumber + DATA_BLOCK_START;
 
+    /* Salva o inode correspondente ao diretório no disco */
     save_inode(newInode, inodeNumber);
 
-    //////////////////////////////////////
-
+    /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
-    printf("***%d\n", inode->direct[0]);
 
+    /* Checa se encontrou inode */
+    if(inode == NULL)
+        return -1;
+
+    /* Calcula o bloco de inicio e termino correspondente ao diretório atual */
     int blockStart = inode->size / 512;
     int blockEnd = (inode->size + sizeof(Directory)) / 512;
     int byteStart = inode->size % 512;
 
+    buffer = realloc(buffer, (blockEnd - blockStart + 1) * 512);
+
     printf("***%d %d %d\n", blockStart, blockEnd, byteStart);
 
+    /* Lê os blocos onde o diretório atual está salvo */
     for(int i = blockStart; i < blockEnd + 1; i++) {
         block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
 
+    /* Cria entrada do novo diretório */
     Directory* directory = (Directory*) malloc(sizeof(Directory));
     bcopy((unsigned char*) fileName, (unsigned char*) directory->name, strlen(fileName) + 1);
     directory->inode = inodeNumber;
-    printf("***%s is allocated to inode number %d\n", directory->name, directory->inode);
+    // printf("***%s is allocated to inode number %d\n", directory->name, directory->inode);
 
+    /* Guarda o novo diretório criado dentro do bloco de dados do diretório atual */
     bcopy((unsigned char*) directory, (unsigned char*) &buffer[byteStart], sizeof(Directory));
     for(int i = blockStart; i < blockEnd + 1; i++) {
         block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
 
+    /* Libera memória alocada dinamicamente */
     free(buffer);
-    free(inode);
     free(directory);
 
+    /* Atualiza o tamanho do bloco de dados do diretório atual */
+    inode->size += sizeof(Directory);
+    save_inode(inode, superblock->workingDirectory);
+    free(inode);
+    
     return 0;
-
 }
 
 int fs_rmdir( char *fileName) {
