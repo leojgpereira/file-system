@@ -133,3 +133,67 @@ void save_inode(Inode* inode, int inodeNumber) {
     /* Libera memória alocada dinâmicamente */
     free(buffer);
 }
+
+Directory* get_directories(int inodeNumber) {
+    /* Recupera o inode do diretório atual */
+    Inode* inode = find_inode(inodeNumber);
+
+    /* Verifica se o inode corresponde a um inode de diretório */
+    if(inode->type != 1)
+        return NULL;
+
+    /* Calcula quantos blocos de dados o diretório utiliza */
+    int numBlocks = (inode->size / 512) + 1;
+
+    /* Cria uma variável buffer para armazenar os blocos de dados */
+    buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
+
+    /* Lê cada bloco de dados correspondente ao diretório a ser consultado */
+    for(int i = 0; i < numBlocks; i++) {
+        block_read(inode->direct[i], &buffer[i * 512]);
+    }
+
+    /* Aloca um vetor de diretórios dinamicamente */
+    Directory* directories = (Directory*) malloc(inode->size);
+    /* Copia os bytes do buffer para o vetor de diretórios */
+    bcopy((unsigned char*) buffer, (unsigned char*) directories, inode->size);
+
+    /* Libera a memória alocada dinâmicamente */
+    free(buffer);
+    free(inode);
+
+    /* Retorna um ponteiro para a lista de diretórios */
+    return directories;
+}
+
+int dir_exists(char* dirname) {
+    /* Variável de controle */
+    int exists = 0;
+
+    /* Recupera o inode do diretório atual */
+    Inode* inode = find_inode(superblock->workingDirectory);
+    /* Recupera a lista de diretórios dentro do diretório atual */
+    Directory* directories = get_directories(superblock->workingDirectory);
+
+    /* Verifica se foi retornado uma lista de diretórios */
+    if(directories == NULL)
+        return 1;
+
+    /* Percorre a lista de diretórios */
+    for(int i = 0; i < (inode->size / sizeof(Directory)) && exists == 0; i++) {
+        /* Verifica se há um diretório igual a dirname */
+        if(same_string(dirname, directories[i].name)) {
+            /* Seta variável de controle para verdadeiro */
+            exists = 1;
+        }
+
+        printf("%s --> %d\n", directories[i].name, exists);
+    }
+
+    /* Libera memória alocada dinâmicamente */
+    free(inode);
+    free(directories);
+
+    /* Retorna se há ou não um diretório igual a dirname no diretório atual */
+    return exists;
+}

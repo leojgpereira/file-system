@@ -61,3 +61,5 @@ typedef struct __attribute__((packed)) {
     int offset;
     int mode;
 } File;
+
+int fs_ls();

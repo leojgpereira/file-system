@@ -156,6 +156,11 @@ int fs_lseek( int fd, int offset) {
 }
 
 int fs_mkdir(char *fileName) {
+    /* Verifica se já existe um diretório com o mesmo nome */
+    if(dir_exists(fileName)) {
+        return -1;
+    }
+
     /* Aloca memória para variável buffer */
     buffer = (char*) malloc(512 * sizeof(char));
 
@@ -278,3 +283,26 @@ int fs_stat( char *fileName, fileStat *buf) {
     return -1;
 }
 
+int fs_ls() {
+    /* Recupera o inode do diretório atual */
+    Inode* inode = find_inode(superblock->workingDirectory);
+    /* Recupera a lista de diretórios dentro do diretório atual */
+    Directory* directories = get_directories(superblock->workingDirectory);
+
+    /* Verifica se foi retornado uma lista de diretórios */
+    if(directories == NULL)
+        return -1;
+
+    /* Percorre a lista de diretórios */
+    for(int i = 0; i < (inode->size / sizeof(Directory)); i++) {
+        printf("\033[1;34m");
+        printf("%s\n", directories[i].name);
+        printf("\033[0m");
+    }
+
+    /* Libera memória alocada dinâmicamente */
+    free(directories);
+    free(inode);
+
+    return 0;
+}
