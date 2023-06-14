@@ -26,16 +26,21 @@ int get_bit(char* bytes, int index, int n) {
     return (bytes[index] >> n) & 1;
 }
 
-int find_free_bit_number(char* bitmap, int block) {
+void load_bitmap(char* bitmap, int block) {
     /* Aloca memória para variável buffer */
     buffer = (char*) malloc(512 * sizeof(char));
-
-    /* Variável utilizada para guardar número de um bit livre */
-    int bitNumber = -1;
 
     /* Busca o vetor de bits e copia para variável bitmap */
     block_read(block, buffer);
     bcopy((unsigned char*) buffer, (unsigned char*) bitmap, sizeof(bitmap));
+
+    /* Libera memória alocada para a variável buffer */
+    free(buffer);
+}
+
+int find_free_bit_number(char* bitmap) {
+    /* Variável utilizada para guardar número de um bit livre */
+    int bitNumber = -1;
 
     /* Percorre cada byte do vetor de bits */
     for(int i = 0; i < (int) ceil(NUMBER_OF_INODES / 8); i++) {
@@ -60,9 +65,6 @@ int find_free_bit_number(char* bitmap, int block) {
         if(bitNumber != -1)
             break;
     }
-
-    /* Libera memória alocada para a variável buffer */
-    free(buffer);
 
     /* Retorna número do bit livre ou -1 caso não tenha bits livres */
     return bitNumber;
@@ -247,9 +249,10 @@ DirectoryItem* create_new_file(char* fileName) {
 
     /* Declara vetor de bits para guardar o vetor de bits dos inodes */
     char imap[64];
+    load_bitmap(imap, I_MAP_BLOCK);
 
     /* Encontra inode livre */
-    int inodeNumber = find_free_bit_number(imap, I_MAP_BLOCK);
+    int inodeNumber = find_free_bit_number(imap);
 
     /* Checa se houve sucesso em encontrar um inode livre */
     if(inodeNumber == -1)
@@ -264,6 +267,9 @@ DirectoryItem* create_new_file(char* fileName) {
     Inode* newInode = (Inode*) malloc(sizeof(Inode));
     newInode->type = 0;
     newInode->size = 0;
+    for(int i = 0; i < (sizeof(newInode->direct) / 4); i++) {
+        newInode->direct[i] = -1;
+    }
 
     /* Salva o inode correspondente ao arquivo no disco */
     save_inode(newInode, inodeNumber);

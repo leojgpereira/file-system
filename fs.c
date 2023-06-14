@@ -260,9 +260,10 @@ int fs_mkdir(char *fileName) {
 
     /* Declara vetor de bits para guardar o vetor de bits dos inodes */
     char imap[64];
+    load_bitmap(imap, I_MAP_BLOCK);
 
     /* Encontra inode livre */
-    int inodeNumber = find_free_bit_number(imap, I_MAP_BLOCK);
+    int inodeNumber = find_free_bit_number(imap);
 
     /* Checa se houve sucesso em encontrar um inode livre */
     if(inodeNumber == -1)
@@ -275,9 +276,10 @@ int fs_mkdir(char *fileName) {
 
     /* Declara vetor de bits para guardar o vetor de bits dos blocos de dados */
     char dmap[251];
+    load_bitmap(dmap, D_MAP_BLOCK);
 
     /* Encontra bloco de dados livre */
-    int blockNumber = find_free_bit_number(dmap, D_MAP_BLOCK);
+    int blockNumber = find_free_bit_number(dmap);
 
     /* Checa se houve sucesso em encontrar um bloco de dados livre */
     if(blockNumber == -1)
