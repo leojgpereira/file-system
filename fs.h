@@ -53,7 +53,7 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     char name[MAX_FILE_NAME];
     int inode;
-} Directory;
+} DirectoryItem;
 
 typedef struct __attribute__((packed)) {
     int fd;

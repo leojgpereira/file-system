@@ -98,7 +98,7 @@ int fs_mkfs( void) {
 
     /* Define o primeiro i-node como sendo o i-node correspondente ao diretório raiz */
     inodes[0].type = 1;
-    inodes[0].size = 2 * sizeof(Directory);
+    inodes[0].size = 2 * sizeof(DirectoryItem);
     inodes[0].direct[0] = DATA_BLOCK_START;
 
     /* Copia o vetor de i-nodes para a variável buffer e escreve o conteúdo nos blocos alocados para armazenar i-nodes */
@@ -110,7 +110,7 @@ int fs_mkfs( void) {
     }
 
     /* Inicializa um vetor de diretórios e insere as entradas '.' e '..' inicialmente como entradas do diretório raiz */
-    Directory* rootDirectory = (Directory*) malloc(2 * sizeof(Directory));
+    DirectoryItem* rootDirectory = (DirectoryItem*) malloc(2 * sizeof(DirectoryItem));
     bcopy((unsigned char*) dirEntry1, (unsigned char*) rootDirectory[0].name, 32);
     rootDirectory[0].inode = 0;
     bcopy((unsigned char*) dirEntry2, (unsigned char*) rootDirectory[1].name, 32);
@@ -119,7 +119,7 @@ int fs_mkfs( void) {
     /* Escreve no primeiro bloco de dados o diretório raiz */
     buffer = realloc(buffer, 512);
     bzero(buffer, 512);
-    bcopy((unsigned char*) rootDirectory, (unsigned char*) buffer, 2 * sizeof(Directory));
+    bcopy((unsigned char*) rootDirectory, (unsigned char*) buffer, 2 * sizeof(DirectoryItem));
     block_write(DATA_BLOCK_START, buffer);
 
     /* Libera memória alocada dinâmicamente */
@@ -195,7 +195,7 @@ int fs_mkdir(char *fileName) {
     save_bitmap(dmap, D_MAP_BLOCK);
 
     /* Cria as entradas . e .. de um diretório vazio */
-    Directory* newDirectory = (Directory*) malloc(2 * sizeof(Directory));
+    DirectoryItem* newDirectory = (DirectoryItem*) malloc(2 * sizeof(DirectoryItem));
     bcopy((unsigned char*) dirEntry1, (unsigned char*) newDirectory[0].name, 32);
     newDirectory[0].inode = inodeNumber;
     bcopy((unsigned char*) dirEntry2, (unsigned char*) newDirectory[1].name, 32);
@@ -203,7 +203,7 @@ int fs_mkdir(char *fileName) {
 
     /* Escreve no disco o diretório criado no bloco correspondente ao diretório */
     bzero(buffer, 512);
-    bcopy((unsigned char*) newDirectory, (unsigned char*) buffer, 2 * sizeof(Directory));
+    bcopy((unsigned char*) newDirectory, (unsigned char*) buffer, 2 * sizeof(DirectoryItem));
     block_write(blockNumber + DATA_BLOCK_START, buffer);
 
     free(buffer);
@@ -213,7 +213,7 @@ int fs_mkdir(char *fileName) {
     /* Aloca inode para o novo diretório criado */
     Inode* newInode = (Inode*) malloc(sizeof(Inode));
     newInode->type = 1;
-    newInode->size = 2 * sizeof(Directory);
+    newInode->size = 2 * sizeof(DirectoryItem);
     newInode->direct[0] = blockNumber + DATA_BLOCK_START;
 
     /* Salva o inode correspondente ao diretório no disco */
@@ -228,7 +228,7 @@ int fs_mkdir(char *fileName) {
 
     /* Calcula o bloco de inicio e termino correspondente ao diretório atual */
     int blockStart = inode->size / 512;
-    int blockEnd = (inode->size + sizeof(Directory)) / 512;
+    int blockEnd = (inode->size + sizeof(DirectoryItem)) / 512;
     int byteStart = inode->size % 512;
 
     buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
@@ -241,18 +241,18 @@ int fs_mkdir(char *fileName) {
     }
 
     /* Cria entrada do novo diretório */
-    Directory* directory = (Directory*) malloc(sizeof(Directory));
+    DirectoryItem* directory = (DirectoryItem*) malloc(sizeof(DirectoryItem));
     bcopy((unsigned char*) fileName, (unsigned char*) directory->name, strlen(fileName) + 1);
     directory->inode = inodeNumber;
     // printf("***%s is allocated to inode number %d\n", directory->name, directory->inode);
 
     /* Guarda o novo diretório criado dentro do bloco de dados do diretório atual */
-    bcopy((unsigned char*) directory, (unsigned char*) &buffer[byteStart], sizeof(Directory));
+    bcopy((unsigned char*) directory, (unsigned char*) &buffer[byteStart], sizeof(DirectoryItem));
     for(int i = blockStart; i < blockEnd + 1; i++) {
         block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
 
-    inode->size += sizeof(Directory);
+    inode->size += sizeof(DirectoryItem);
     save_inode(inode, superblock->workingDirectory);
 
     /* Libera memória alocada dinamicamente */
@@ -281,14 +281,14 @@ int fs_rmdir( char *fileName) {
     Inode* inode = find_inode(superblock->workingDirectory);
 
     /* Recupera a lista de diretórios dentro do diretório atual */
-    Directory* directories = get_directories(superblock->workingDirectory);
+    DirectoryItem* directories = get_directories(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
     if(directories == NULL)
         return -1;
 
     /* Percorre a lista de diretórios */
-    for(int i = 0; i < (inode->size / sizeof(Directory)); i++) {
+    for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
         /* Verifica se o nome do diretório é o mesmo que está sendo procurado */
         if(same_string(directories[i].name, fileName)) {
             printf("Deleted\n");
@@ -300,7 +300,7 @@ int fs_rmdir( char *fileName) {
             Inode* dirInode = find_inode(directories[i].inode);
 
             /* Verifica se o inode não é de um diretório ou se o diretório não está vazio */
-            if(dirInode->type != 1 || dirInode->size != (2 * sizeof(Directory)))
+            if(dirInode->type != 1 || dirInode->size != (2 * sizeof(DirectoryItem)))
                 return -1;
 
             /* Lê o vetor de bits dos inodes do disco */
@@ -318,12 +318,12 @@ int fs_rmdir( char *fileName) {
             block_write(I_MAP_BLOCK, buffer);
 
             /* Move os diretórios uma posição a menos a partir do diretório removido */
-            for(int j = i; j < (inode->size / sizeof(Directory)) - 1; j++) {
+            for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
                 directories[j] = directories[j + 1];
             }
 
             /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
-            inode->size -= sizeof(Directory);
+            inode->size -= sizeof(DirectoryItem);
             save_inode(inode, superblock->workingDirectory);
 
             /* Calcula quantos blocos são necessários para guardar os diretórios restantes */
@@ -394,14 +394,14 @@ int fs_ls() {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
     /* Recupera a lista de diretórios dentro do diretório atual */
-    Directory* directories = get_directories(superblock->workingDirectory);
+    DirectoryItem* directories = get_directories(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
     if(directories == NULL)
         return -1;
 
     /* Percorre a lista de diretórios */
-    for(int i = 0; i < (inode->size / sizeof(Directory)); i++) {
+    for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
         printf("\033[1;34m");
         printf("%s -> %d\n", directories[i].name, directories[i].inode);
         printf("\033[0m");

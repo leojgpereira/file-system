@@ -139,7 +139,7 @@ void save_inode(Inode* inode, int inodeNumber) {
     free(buffer_);
 }
 
-Directory* get_directories(int inodeNumber) {
+DirectoryItem* get_directories(int inodeNumber) {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(inodeNumber);
 
@@ -159,7 +159,7 @@ Directory* get_directories(int inodeNumber) {
     }
 
     /* Aloca um vetor de diretórios dinamicamente */
-    Directory* directories = (Directory*) malloc(inode->size);
+    DirectoryItem* directories = (DirectoryItem*) malloc(inode->size);
     /* Copia os bytes do buffer para o vetor de diretórios */
     bcopy((unsigned char*) buffer, (unsigned char*) directories, inode->size);
 
@@ -178,14 +178,14 @@ int dir_exists(char* dirname) {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
     /* Recupera a lista de diretórios dentro do diretório atual */
-    Directory* directories = get_directories(superblock->workingDirectory);
+    DirectoryItem* directories = get_directories(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
     if(directories == NULL)
         return 1;
 
     /* Percorre a lista de diretórios */
-    for(int i = 0; i < (inode->size / sizeof(Directory)) && exists == 0; i++) {
+    for(int i = 0; i < (inode->size / sizeof(DirectoryItem)) && exists == 0; i++) {
         /* Verifica se há um diretório igual a dirname */
         if(same_string(dirname, directories[i].name)) {
             /* Seta variável de controle para verdadeiro */
