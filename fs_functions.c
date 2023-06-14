@@ -113,10 +113,10 @@ Inode* find_inode(int inodeNumber) {
 
 void save_inode(Inode* inode, int inodeNumber) {
     /* Aloca memória para a variável buffer */
-    buffer = (char*) malloc(1024 * sizeof(char));
+    char* buffer_ = (char*) malloc(1024 * sizeof(char));
 
     /* Zera todos os bytes da variável buffer e copia o inode correspondente para o buffer */
-    bzero(buffer, 1024);
+    bzero(buffer_, 1024);
 
     /* Calcula em quais blocos estão o inode a ser salvo */
     int start = (inodeNumber * 44) / 512;
@@ -124,19 +124,19 @@ void save_inode(Inode* inode, int inodeNumber) {
 
     /* Copia os blocos para a variável buffer */
     for(int i = start; i < end + 1; i++) {
-        block_read(i + INODE_START, buffer);
+        block_read(i + INODE_START, buffer_);
     }
 
     /* Copia os bytes correspondentes ao inode na variável buffer na posição correspondente a posição do inode */
-    bcopy((unsigned char*) inode, (unsigned char*) &buffer[(inodeNumber * 44) % 512], sizeof(Inode));
+    bcopy((unsigned char*) inode, (unsigned char*) &buffer_[(inodeNumber * 44) % 512], sizeof(Inode));
 
     /* Copia os blocos da variável buffer para o disco */
     for(int i = start; i < end + 1; i++) {
-        block_write(i + INODE_START, buffer);
+        block_write(i + INODE_START, buffer_);
     }
 
     /* Libera memória alocada dinâmicamente */
-    free(buffer);
+    free(buffer_);
 }
 
 Directory* get_directories(int inodeNumber) {

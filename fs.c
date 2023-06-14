@@ -206,6 +206,8 @@ int fs_mkdir(char *fileName) {
     bcopy((unsigned char*) newDirectory, (unsigned char*) buffer, 2 * sizeof(Directory));
     block_write(blockNumber + DATA_BLOCK_START, buffer);
 
+    free(buffer);
+
     printf(". inode = %d, .. inode = %d\n", newDirectory[0].inode, newDirectory[1].inode);
 
     /* Aloca inode para o novo diretório criado */
@@ -229,7 +231,7 @@ int fs_mkdir(char *fileName) {
     int blockEnd = (inode->size + sizeof(Directory)) / 512;
     int byteStart = inode->size % 512;
 
-    buffer = realloc(buffer, (blockEnd - blockStart + 1) * 512);
+    buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
 
     printf("***%d %d %d\n", blockStart, blockEnd, byteStart);
 
@@ -250,13 +252,15 @@ int fs_mkdir(char *fileName) {
         block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
 
-    /* Libera memória alocada dinamicamente */
-    free(buffer);
-    free(directory);
-
-    /* Atualiza o tamanho do bloco de dados do diretório atual */
     inode->size += sizeof(Directory);
     save_inode(inode, superblock->workingDirectory);
+
+    /* Libera memória alocada dinamicamente */
+    printf("Freeing...\n");
+    free(buffer);
+    free(directory);
+    free(newDirectory);
+    free(newInode);
     free(inode);
     
     return 0;
