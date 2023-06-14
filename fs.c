@@ -281,23 +281,23 @@ int fs_rmdir( char *fileName) {
     Inode* inode = find_inode(superblock->workingDirectory);
 
     /* Recupera a lista de diretórios dentro do diretório atual */
-    DirectoryItem* directories = get_directory_items(superblock->workingDirectory);
+    DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
-    if(directories == NULL)
+    if(directoryItems == NULL)
         return -1;
 
     /* Percorre a lista de diretórios */
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
         /* Verifica se o nome do diretório é o mesmo que está sendo procurado */
-        if(same_string(directories[i].name, fileName)) {
+        if(same_string(directoryItems[i].name, fileName)) {
             printf("Deleted\n");
 
             /* Aloca memória para o buffer */
             buffer = (char*) malloc(512 * sizeof(char));
 
             /* Carrega o inode do diretório a ser removido */
-            Inode* dirInode = find_inode(directories[i].inode);
+            Inode* dirInode = find_inode(directoryItems[i].inode);
 
             /* Verifica se o inode não é de um diretório ou se o diretório não está vazio */
             if(dirInode->type != 1 || dirInode->size != (2 * sizeof(DirectoryItem)))
@@ -311,7 +311,7 @@ int fs_rmdir( char *fileName) {
             bcopy((unsigned char*) buffer, (unsigned char*) imap, 64);
             
             /* Seta para 0 o bit correspondente ao inode do diretório a ser removido */
-            unset_bit(imap, (directories[i].inode / 8), (directories[i].inode % 8));
+            unset_bit(imap, (directoryItems[i].inode / 8), (directoryItems[i].inode % 8));
 
             /* Copia o vetor de bits dos inodes modificado de volta para o buffer e escreve de volta no disco */
             bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
@@ -319,7 +319,7 @@ int fs_rmdir( char *fileName) {
 
             /* Move os diretórios uma posição a menos a partir do diretório removido */
             for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
-                directories[j] = directories[j + 1];
+                directoryItems[j] = directoryItems[j + 1];
             }
 
             /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
@@ -331,7 +331,7 @@ int fs_rmdir( char *fileName) {
 
             /* Copia a lista de diretórios modificada de volta para a variável buffer */
             buffer = realloc(buffer, numBlocks * 512 * sizeof(char));
-            bcopy((unsigned char*) directories, (unsigned char*) buffer, inode->size);
+            bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, inode->size);
 
             /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
             for(int i = 0; i < numBlocks; i++) {
@@ -367,7 +367,7 @@ int fs_rmdir( char *fileName) {
     }
 
     /* Libera memória alocada dinâmicamente */
-    free(directories);
+    free(directoryItems);
     free(inode);
 
     return 0;
@@ -394,21 +394,21 @@ int fs_ls() {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
     /* Recupera a lista de diretórios dentro do diretório atual */
-    DirectoryItem* directories = get_directory_items(superblock->workingDirectory);
+    DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
-    if(directories == NULL)
+    if(directoryItems == NULL)
         return -1;
 
     /* Percorre a lista de diretórios */
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
         printf("\033[1;34m");
-        printf("%s -> %d\n", directories[i].name, directories[i].inode);
+        printf("%s -> %d\n", directoryItems[i].name, directoryItems[i].inode);
         printf("\033[0m");
     }
 
     /* Libera memória alocada dinâmicamente */
-    free(directories);
+    free(directoryItems);
     free(inode);
 
     return 0;

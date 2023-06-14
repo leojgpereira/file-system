@@ -159,16 +159,16 @@ DirectoryItem* get_directory_items(int inodeNumber) {
     }
 
     /* Aloca um vetor de diretórios dinamicamente */
-    DirectoryItem* directories = (DirectoryItem*) malloc(inode->size);
+    DirectoryItem* directoryItems = (DirectoryItem*) malloc(inode->size);
     /* Copia os bytes do buffer para o vetor de diretórios */
-    bcopy((unsigned char*) buffer, (unsigned char*) directories, inode->size);
+    bcopy((unsigned char*) buffer, (unsigned char*) directoryItems, inode->size);
 
     /* Libera a memória alocada dinâmicamente */
     free(buffer);
     free(inode);
 
     /* Retorna um ponteiro para a lista de diretórios */
-    return directories;
+    return directoryItems;
 }
 
 int dir_exists(char* dirname) {
@@ -178,16 +178,16 @@ int dir_exists(char* dirname) {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
     /* Recupera a lista de diretórios dentro do diretório atual */
-    DirectoryItem* directories = get_directory_items(superblock->workingDirectory);
+    DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
-    if(directories == NULL)
+    if(directoryItems == NULL)
         return 1;
 
     /* Percorre a lista de diretórios */
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)) && exists == 0; i++) {
         /* Verifica se há um diretório igual a dirname */
-        if(same_string(dirname, directories[i].name)) {
+        if(same_string(dirname, directoryItems[i].name)) {
             /* Seta variável de controle para verdadeiro */
             exists = 1;
         }
@@ -195,7 +195,7 @@ int dir_exists(char* dirname) {
 
     /* Libera memória alocada dinâmicamente */
     free(inode);
-    free(directories);
+    free(directoryItems);
 
     /* Retorna se há ou não um diretório igual a dirname no diretório atual */
     return exists;
