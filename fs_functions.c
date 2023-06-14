@@ -139,7 +139,7 @@ void save_inode(Inode* inode, int inodeNumber) {
     free(buffer_);
 }
 
-DirectoryItem* get_directories(int inodeNumber) {
+DirectoryItem* get_directory_items(int inodeNumber) {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(inodeNumber);
 
@@ -178,7 +178,7 @@ int dir_exists(char* dirname) {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
     /* Recupera a lista de diretórios dentro do diretório atual */
-    DirectoryItem* directories = get_directories(superblock->workingDirectory);
+    DirectoryItem* directories = get_directory_items(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
     if(directories == NULL)

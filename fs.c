@@ -281,7 +281,7 @@ int fs_rmdir( char *fileName) {
     Inode* inode = find_inode(superblock->workingDirectory);
 
     /* Recupera a lista de diretórios dentro do diretório atual */
-    DirectoryItem* directories = get_directories(superblock->workingDirectory);
+    DirectoryItem* directories = get_directory_items(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
     if(directories == NULL)
@@ -394,7 +394,7 @@ int fs_ls() {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
     /* Recupera a lista de diretórios dentro do diretório atual */
-    DirectoryItem* directories = get_directories(superblock->workingDirectory);
+    DirectoryItem* directories = get_directory_items(superblock->workingDirectory);
 
     /* Verifica se foi retornado uma lista de diretórios */
     if(directories == NULL)
