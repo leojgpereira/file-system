@@ -134,33 +134,105 @@ int fs_mkfs( void) {
 }
 
 int fs_open(char *fileName, int flags) {
-    if(numFileDescriptors >= FD_TABLE_SIZE)
+    /* Recupera posição do descritor se ele já existe ou -1 caso contrário */
+    int openedFileDescriptor = fd_exists(fileName);
+
+    /* Verifica se não há descritores disponíveis e se o arquio já não tem um descritor associado (aberto anteriormente) */
+    if(numFileDescriptors >= FD_TABLE_SIZE && openedFileDescriptor < 0)
         return -1;
+    
+    /* Recupera o item que representa o arquivo dentro do diretório atual ou NULL caso não encontre */
+    DirectoryItem* directoryItem = NULL;
+    directoryItem = get_directory_item(fileName);
 
-    File* fd = (File*) malloc(sizeof(File));
-    bcopy((unsigned char*) fileName, (unsigned char*) fd->name, strlen(fileName) + 1);
-    fd->mode = flags;
-    fd->offset = 0;
+    /* FS O RDONLY */
+    if(flags == 1) {
+        /* Verifica se encontrou o arquivo com nome fileName no diretório atual */
+        if(directoryItem == NULL) {
+            return -1;
+        }
+    /* FS O WRONLY ou FS O RDWR */
+    } else if(flags == 2 || flags == 3) {
+        /* Verifica se encontrou o arquivo com nome fileName no diretório atual */
+        if(directoryItem == NULL) {
+            /* Cria um arquivo no diretório atual caso ele não exista */
+            directoryItem = create_new_file(fileName);
 
-    fdTable[numFileDescriptors] = fd;
-    numFileDescriptors++;
+            /* Retorna -1 caso não seja possível criar um novo arquivo */
+            if(directoryItem == NULL)
+                return -1;
+        } else {
+            /* Guarda o tipo de item (1: diretório, 0: arquivo) */
+            int type;
 
-    DirectoryItem* directoryItem = create_file(fileName);
+            /* Carrega o inode correspondente ao item buscado e recupera seu tipo */
+            Inode* inode = find_inode(directoryItem->inode);
+            type = inode->type;
+            free(inode);
+
+            /* Verifica se é um diretório e retorna um erro em caso afirmativo */
+            if(type == 1) {
+                /* Libera memória alocada dinâmicamente */
+                free(directoryItem);
+                return -1;
+            }
+        }
+    /* Retorna erro se não foi passado um dos três modos de acesso */
+    } else {
+        return -1;
+    }
+
+    /* Declara um ponteiro para um descritor de arquivos */
+    File* fd;
+
+    /* Verifica se já existe um descritor de arquivos para o arquivo solicitado */
+    if(openedFileDescriptor >= 0) {
+        /* Atualiza as informações do descritor já existente */
+        fd = fdTable[openedFileDescriptor];
+        fd->mode = flags;
+        fd->offset = 0;
+    } else {
+        /* Cria um novo descritor de arquivos */
+        fd = (File*) malloc(sizeof(File));
+        bcopy((unsigned char*) fileName, (unsigned char*) fd->name, strlen(fileName) + 1);
+        fd->mode = flags;
+        fd->offset = 0;
+        fd->inode = directoryItem->inode;
+
+        /* Encontra uma posição NULL dentro do vetor de descritores de arquivo */
+        int pos;
+        for(pos = 0; pos < FD_TABLE_SIZE; pos++) {
+            if(fdTable[pos] == NULL)
+                break;
+        }
+
+        /* Guarda o novo descritor de arquivo na posição pos do vetor de descritores de arquivos */
+        fdTable[pos] = fd;
+        /* Incrementa a variável que contabiliza a quantidade de descritores sendo utilizados no momento */
+        numFileDescriptors++;
+
+        /* Guarda a posição do descritor dentro do vetor */
+        openedFileDescriptor = pos;
+    }
+
+    /* Libera memória alocada dinâmicamente */
     free(directoryItem);
 
-    return numFileDescriptors - 1;
+    /* Retorna o descritor de arquivo correspondente para o arquivo solicitado */
+    return openedFileDescriptor;
 }
 
 int fs_close(int fd) {
-    if(fd < 0 || fd >= FD_TABLE_SIZE)
+    /* Verifica se o número do descritor é válido (entre 0 e FD_TABLE_SIZE-1 -- incluso) e se há um descritor alocado na posição fd fo vetor de descritores de arquivos */
+    if(fd < 0 || fd >= FD_TABLE_SIZE || fdTable[fd] == NULL)
         return -1;
 
+    /* Libera a memória alocada para o descritor */
     free(fdTable[fd]);
+    /* Atualiza o ponteiro no vetor de descritores de arquivos para NULL */
+    fdTable[fd] = NULL;
+    /* Decrementa o número de descritores de arquivos */
     numFileDescriptors--;
-
-    for(int i = fd; i < FD_TABLE_SIZE - 1; i++) {
-        fdTable[i] = fdTable[i + 1];
-    }
 
     return 0;
 }
@@ -179,7 +251,7 @@ int fs_lseek( int fd, int offset) {
 
 int fs_mkdir(char *fileName) {
     /* Verifica se já existe um diretório com o mesmo nome */
-    if(dir_exists(fileName)) {
+    if(item_exists(fileName)) {
         return -1;
     }
 
@@ -290,7 +362,7 @@ int fs_mkdir(char *fileName) {
 
 int fs_rmdir( char *fileName) {
     /* Verifica se o diretório existe */
-    if(!dir_exists(fileName)) {
+    if(!item_exists(fileName)) {
         return -1;
     }
     

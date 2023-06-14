@@ -1,6 +1,13 @@
 File** init_fd_table() {
+    /* Cria um vetor de descritores de arquivos */
     File** fd_table = (File**) malloc(FD_TABLE_SIZE * sizeof(File));
 
+    /* Seta todas as posições do vetor de descritores de arquivos para NULL */
+    for(int i = 0; i < FD_TABLE_SIZE; i++) {
+        fd_table[i] = NULL;
+    }
+
+    /* Retorna referência para o vetor de descritores de arquivos */
     return fd_table;
 }
 
@@ -200,7 +207,7 @@ DirectoryItem* get_directory_item(char* itemName) {
     return directoryItem;
 }
 
-int dir_exists(char* dirname) {
+int item_exists(char* itemName) {
     /* Variável de controle */
     int exists = 0;
 
@@ -215,8 +222,8 @@ int dir_exists(char* dirname) {
 
     /* Percorre a lista de diretórios */
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)) && exists == 0; i++) {
-        /* Verifica se há um diretório igual a dirname */
-        if(same_string(dirname, directoryItems[i].name)) {
+        /* Verifica se há um diretório igual a itemName */
+        if(same_string(itemName, directoryItems[i].name)) {
             /* Seta variável de controle para verdadeiro */
             exists = 1;
         }
@@ -226,15 +233,15 @@ int dir_exists(char* dirname) {
     free(inode);
     free(directoryItems);
 
-    /* Retorna se há ou não um diretório igual a dirname no diretório atual */
+    /* Retorna se há ou não um diretório igual a itemName no diretório atual */
     return exists;
 }
 
-DirectoryItem* create_file(char* fileName) {
+DirectoryItem* create_new_file(char* fileName) {
     DirectoryItem* newDirectoryItem = NULL;
 
     /* Verifica se já existe um diretório/arquivo com o mesmo nome */
-    if(dir_exists(fileName)) {
+    if(item_exists(fileName)) {
         return NULL;
     }
 
@@ -296,4 +303,24 @@ DirectoryItem* create_file(char* fileName) {
     free(inode);
 
     return newDirectoryItem;
+}
+
+int fd_exists(char* fileName) {
+    /* Variável de controle */
+    int index = -1;
+
+    /* Percorre todas as posições do vetor de descritores de arquivos */
+    for(int i = 0; i < FD_TABLE_SIZE; i++) {
+        /* Verifica de a posição tem um descritor válido e se esse tem o mesmo nome de arquivo que fileName */
+        if(fdTable[i] != NULL && same_string(fileName, fdTable[i]->name)) {
+            /* Atualiza a variável de controle para guardar a posição do vetor que já contém um descritor de arquivo aberto para o arquivo fileName */
+            index = i;
+
+            /* Encerra o loop */
+            break;
+        }
+    }
+
+    /* Retorna o índice do descritor ou -1 caso ainda não haja um descritor aberto para o arquivo com nome igual a fileName */
+    return index;
 }
