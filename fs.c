@@ -251,7 +251,7 @@ int fs_write( int fd, char *buf, int count) {
     int blockEnd = (inode->size + count) / 512;
     int byteStart = fdTable[fd]->offset;
 
-    printf("%d %d %d %d %d\n", count, blockCount, blockStart, blockEnd, byteStart);
+    printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
 
     char dmap[251];
     load_bitmap(dmap, D_MAP_BLOCK);
