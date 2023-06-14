@@ -382,11 +382,19 @@ int fs_cd(char *dirName) {
         return -1;
     }
 
+    /* Recupera o inode do diretório */
+    Inode* inode = find_inode(directoryItem->inode);
+
+    /* Verifica se realmente é um diretório */
+    if(inode->type != 1)
+        return -1;
+
     /* Altera o inode que corresponde ao diretório de trabalho atual no superbloco */
     superblock->workingDirectory = directoryItem->inode;
 
     /* Libera memória alocada */
     free(directoryItem);
+    free(inode);
 
     return 0;
 }
