@@ -263,17 +263,19 @@ int fs_mkdir(char *fileName) {
 }
 
 int fs_rmdir( char *fileName) {
-    /* Verifica se já existe um diretório com o mesmo nome */
+    /* Verifica se o diretório existe */
     if(!dir_exists(fileName)) {
         return -1;
     }
-
+    
+    /* Certifica-se de que não seja os diretórios . ou .. */
     if(same_string(fileName, ".") || same_string(fileName, "..")) {
         return -1;
     }
 
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
+
     /* Recupera a lista de diretórios dentro do diretório atual */
     Directory* directories = get_directories(superblock->workingDirectory);
 
@@ -283,55 +285,79 @@ int fs_rmdir( char *fileName) {
 
     /* Percorre a lista de diretórios */
     for(int i = 0; i < (inode->size / sizeof(Directory)); i++) {
+        /* Verifica se o nome do diretório é o mesmo que está sendo procurado */
         if(same_string(directories[i].name, fileName)) {
             printf("Deleted\n");
 
+            /* Aloca memória para o buffer */
+            buffer = (char*) malloc(512 * sizeof(char));
+
+            /* Carrega o inode do diretório a ser removido */
             Inode* dirInode = find_inode(directories[i].inode);
 
+            /* Verifica se o inode não é de um diretório ou se o diretório não está vazio */
             if(dirInode->type != 1 || dirInode->size != (2 * sizeof(Directory)))
                 return -1;
 
+            /* Lê o vetor de bits dos inodes do disco */
             block_read(I_MAP_BLOCK, buffer);
 
+            /* Carrega o vetor de bits dos inodes do buffer para um vetor */
             char imap[64];
             bcopy((unsigned char*) buffer, (unsigned char*) imap, 64);
-            printf("--------%d %d %d\n", directories[i].inode, i, inode->size);
-            unset_bit(imap, directories[i].inode / 8, directories[i].inode % 8);
+            
+            /* Seta para 0 o bit correspondente ao inode do diretório a ser removido */
+            unset_bit(imap, (directories[i].inode / 8), (directories[i].inode % 8));
+
+            /* Copia o vetor de bits dos inodes modificado de volta para o buffer e escreve de volta no disco */
             bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
             block_write(I_MAP_BLOCK, buffer);
 
+            /* Move os diretórios uma posição a menos a partir do diretório removido */
             for(int j = i; j < (inode->size / sizeof(Directory)) - 1; j++) {
                 directories[j] = directories[j + 1];
             }
 
+            /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
             inode->size -= sizeof(Directory);
             save_inode(inode, superblock->workingDirectory);
 
+            /* Calcula quantos blocos são necessários para guardar os diretórios restantes */
             int numBlocks = (inode->size / 512) + 1;
 
-            buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
+            /* Copia a lista de diretórios modificada de volta para a variável buffer */
+            buffer = realloc(buffer, numBlocks * 512 * sizeof(char));
             bcopy((unsigned char*) directories, (unsigned char*) buffer, inode->size);
 
+            /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
             for(int i = 0; i < numBlocks; i++) {
                 block_write(inode->direct[i], &buffer[i * 512]);
             }
 
+            /* Lê o vetor de bits dos blocos de dados do disco */
             block_read(D_MAP_BLOCK, buffer);
 
+            /* Carrega o vetor de bits dos blocos de dados do buffer para um vetor */
             char dmap[251];
             bcopy((unsigned char*) buffer, (unsigned char*) dmap, 251);
 
+            /* Calcula quantos blocos de dados o diretório removido estava ocupando */
             numBlocks = (dirInode->size / 512) + 1;
+
+            /* Seta para 0 os bits correspondentes aos blocos de dados do diretório removido */
             for(int i = 0; i < numBlocks; i++) {
                 unset_bit(dmap, (dirInode->direct[i] - 47) / 8, (dirInode->direct[i] - 47) % 8);
             }
             
+            /* Copia o vetor de bits dos blocos de dados modificado de volta para o buffer e escreve de volta no disco */
             bcopy((unsigned char*) dmap, (unsigned char*) buffer, 251);
             block_write(D_MAP_BLOCK, buffer);
-
+            
+            /* Libera memória alocada dinâmicamente */
             free(buffer);
             free(dirInode);
 
+            /* Encerra o loop pela lista de diretórios */
             break;
         }
     }
