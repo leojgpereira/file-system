@@ -258,8 +258,9 @@ int fs_write( int fd, char *buf, int count) {
     load_bitmap(dmap, D_MAP_BLOCK);
 
     int blockNumber;
+    int blockCount = 0;
 
-    for(int i = blockStart; i < blockEnd + 1; i++) {
+    for(int i = blockStart; i < blockEnd + 1 && i < (sizeof(inode->direct) / 4); i++) {
         printf(">>>%d\n", inode->direct[i]);
         if(inode->direct[i] == -1) {
             blockNumber = find_free_bit_number(dmap);
@@ -271,7 +272,11 @@ int fs_write( int fd, char *buf, int count) {
 
             printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
         }
+
+        blockCount++;
     }
+
+    int bytesCount = (blockCount * 512) - fdTable[fd]->offset;
 
     char* buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
 
@@ -280,7 +285,12 @@ int fs_write( int fd, char *buf, int count) {
     }
 
     printf("+++%s\n", buf);
-    bcopy((unsigned char*) buf, (unsigned char*) &buffer[byteStart], count);
+
+    if(count <= bytesCount) {
+        bcopy((unsigned char*) buf, (unsigned char*) &buffer[byteStart], count);
+    } else {
+        bcopy((unsigned char*) buf, (unsigned char*) &buffer[byteStart], bytesCount);
+    }
 
     for(int i = blockStart; i < blockEnd + 1; i++) {
         block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
@@ -300,8 +310,12 @@ int fs_write( int fd, char *buf, int count) {
 
     free(inode);
     free(buffer);
-    
-    return count;
+
+    if(count <= bytesCount) {
+        return count;
+    } else {
+        return bytesCount;
+    }
 }
 
 int fs_lseek( int fd, int offset) {
