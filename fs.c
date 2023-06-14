@@ -243,12 +243,13 @@ int fs_read( int fd, char *buf, int count) {
     
 int fs_write( int fd, char *buf, int count) {
     Inode* inode = find_inode(fdTable[fd]->inode);
+    printf("%d\n", inode->size);
 
     if(inode->type != 0)
         return -1;
 
-    int blockStart = inode->size / 512;
-    int blockEnd = (inode->size + count) / 512;
+    int blockStart = fdTable[fd]->offset / 512;
+    int blockEnd = (fdTable[fd]->offset + count) / 512;
     int byteStart = fdTable[fd]->offset;
 
     printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
@@ -285,7 +286,13 @@ int fs_write( int fd, char *buf, int count) {
         block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
 
-    inode->size += count;
+    for(int i = blockEnd + 1; i < ceil(inode->size / 512.0); i++) {
+        printf("Freeing block number %d\n", inode->direct[i]);
+        unset_bit(dmap, (inode->direct[i] - 47) / 8, (inode->direct[i] - 47) % 8);
+        inode->direct[i] = -1;
+    }
+
+    inode->size = fdTable[fd]->offset + count;
     fdTable[fd]->offset += count;
 
     save_bitmap(dmap, D_MAP_BLOCK);
