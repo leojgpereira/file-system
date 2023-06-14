@@ -15,7 +15,9 @@
 /* Variáveis principais utilizadas no sistema de arquivo */
 Superblock* superblock;
 Inode* inodes;
+File** fdTable;
 char* buffer;
+int numFileDescriptors;
 
 /* Guarda o nome das duas entradas iniciais de um diretório */
 char dirEntry1[MAX_FILE_NAME] = ".";
@@ -57,7 +59,8 @@ void fs_init( void) {
     }
 
     /* Cria tabela de descritores de arquivo em memória */
-    File* fd_table = init_fd_table();
+    fdTable = init_fd_table();
+    numFileDescriptors = 0;
 }
 
 int fs_mkfs( void) {
@@ -131,16 +134,35 @@ int fs_mkfs( void) {
 }
 
 int fs_open(char *fileName, int flags) {
-    Inode* inode = find_inode(superblock->workingDirectory);
+    if(numFileDescriptors >= FD_TABLE_SIZE)
+        return -1;
 
-    printf("***%d\n", inode->type);
+    File* fd = (File*) malloc(sizeof(File));
+    bcopy((unsigned char*) fileName, (unsigned char*) fd->name, strlen(fileName) + 1);
+    fd->mode = flags;
+    fd->offset = 0;
 
+    fdTable[numFileDescriptors] = fd;
+    numFileDescriptors++;
 
-    return 5;
+    DirectoryItem* directoryItem = create_file(fileName);
+    free(directoryItem);
+
+    return numFileDescriptors - 1;
 }
 
-int fs_close( int fd) {
-    return -1;
+int fs_close(int fd) {
+    if(fd < 0 || fd >= FD_TABLE_SIZE)
+        return -1;
+
+    free(fdTable[fd]);
+    numFileDescriptors--;
+
+    for(int i = fd; i < FD_TABLE_SIZE - 1; i++) {
+        fdTable[i] = fdTable[i + 1];
+    }
+
+    return 0;
 }
 
 int fs_read( int fd, char *buf, int count) {

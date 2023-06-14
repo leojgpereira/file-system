@@ -56,8 +56,7 @@ typedef struct __attribute__((packed)) {
 } DirectoryItem;
 
 typedef struct __attribute__((packed)) {
-    int fd;
-    char* name;
+    char name[MAX_FILE_NAME];
     int offset;
     int mode;
 } File;

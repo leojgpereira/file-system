@@ -1,12 +1,5 @@
-File* init_fd_table() {
-    File* fd_table = (File*) malloc(FD_TABLE_SIZE * sizeof(File));
-
-    for(int i = 0; i < FD_TABLE_SIZE; i++) {
-        fd_table[i].fd = -1;
-        fd_table[i].name = NULL;
-        fd_table[i].offset = -1;
-        fd_table[i].mode = 0;
-    }
+File** init_fd_table() {
+    File** fd_table = (File**) malloc(FD_TABLE_SIZE * sizeof(File));
 
     return fd_table;
 }
@@ -235,4 +228,72 @@ int dir_exists(char* dirname) {
 
     /* Retorna se há ou não um diretório igual a dirname no diretório atual */
     return exists;
+}
+
+DirectoryItem* create_file(char* fileName) {
+    DirectoryItem* newDirectoryItem = NULL;
+
+    /* Verifica se já existe um diretório/arquivo com o mesmo nome */
+    if(dir_exists(fileName)) {
+        return NULL;
+    }
+
+    /* Declara vetor de bits para guardar o vetor de bits dos inodes */
+    char imap[64];
+
+    /* Encontra inode livre */
+    int inodeNumber = find_free_bit_number(imap, I_MAP_BLOCK);
+
+    /* Checa se houve sucesso em encontrar um inode livre */
+    if(inodeNumber == -1)
+        return NULL;
+
+    printf("inode number = %d is free\n", inodeNumber);
+
+    /* Salva mapa de bits atualizado no disco */
+    save_bitmap(imap, I_MAP_BLOCK);
+
+    /* Aloca inode para o novo arquivo criado */
+    Inode* newInode = (Inode*) malloc(sizeof(Inode));
+    newInode->type = 0;
+    newInode->size = 0;
+
+    /* Salva o inode correspondente ao arquivo no disco */
+    save_inode(newInode, inodeNumber);
+
+    /* Recupera inode do diretório de trabalho atual */
+    Inode* inode = find_inode(superblock->workingDirectory);
+
+    /* Calcula o bloco de inicio e termino correspondente ao diretório atual */
+    int blockStart = inode->size / 512;
+    int blockEnd = (inode->size + sizeof(DirectoryItem)) / 512;
+    int byteStart = inode->size % 512;
+
+    buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
+
+    /* Lê os blocos onde o diretório atual está salvo */
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    newDirectoryItem = (DirectoryItem*) malloc(sizeof(DirectoryItem));
+    bcopy((unsigned char*) fileName, (unsigned char*) newDirectoryItem->name, strlen(fileName) + 1);
+    newDirectoryItem->inode = inodeNumber;
+
+    /* Guarda o novo arquivo criado dentro do bloco de dados do diretório atual */
+    bcopy((unsigned char*) newDirectoryItem, (unsigned char*) &buffer[byteStart], sizeof(DirectoryItem));
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    inode->size += sizeof(DirectoryItem);
+    save_inode(inode, superblock->workingDirectory);
+
+    /* Libera memória alocada dinamicamente */
+    printf("Freeing...\n");
+    free(buffer);
+    free(newInode);
+    free(inode);
+
+    return newDirectoryItem;
 }
