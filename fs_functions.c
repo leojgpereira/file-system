@@ -43,7 +43,7 @@ int find_free_bit_number(char* bitmap) {
     int bitNumber = -1;
 
     /* Percorre cada byte do vetor de bits */
-    for(int i = 0; i < (int) ceil(NUMBER_OF_INODES / 8); i++) {
+    for(int i = 0; i < (int) ceil(NUMBER_OF_INODES / 8.0); i++) {
         /* Percorre cada bit do byte do vetor de bits */
         for(int j = 7; j > -1; j--) {
             /* Descobre o valor de um bit dentro de um byte */

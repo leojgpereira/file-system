@@ -2,7 +2,7 @@
 #define SHELLUTIL_INCLUDED
 
 #define MINX 30
-#define SIZEX 50
+#define SIZEX 2048
 #define MINY 0
 #define SIZEY 7
 #define MAX_LINE (SIZEX-2)

@@ -242,7 +242,59 @@ int fs_read( int fd, char *buf, int count) {
 }
     
 int fs_write( int fd, char *buf, int count) {
-    return -1;
+    Inode* inode = find_inode(fdTable[fd]->inode);
+
+    if(inode->type != 0)
+        return -1;
+
+    int blockStart = inode->size / 512;
+    int blockEnd = (inode->size + count) / 512;
+    int byteStart = fdTable[fd]->offset;
+
+    printf("%d %d %d %d %d\n", count, blockCount, blockStart, blockEnd, byteStart);
+
+    char dmap[251];
+    load_bitmap(dmap, D_MAP_BLOCK);
+
+    int blockNumber;
+
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        printf(">>>%d\n", inode->direct[i]);
+        if(inode->direct[i] == -1) {
+            blockNumber = find_free_bit_number(dmap);
+
+            if(blockNumber == -1)
+                return -1;
+
+            inode->direct[i] = blockNumber + DATA_BLOCK_START;
+
+            printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
+        }
+    }
+
+    char* buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
+
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    printf("+++%s\n", buf);
+    bcopy((unsigned char*) buf, (unsigned char*) &buffer[byteStart], count);
+
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    inode->size += count;
+    fdTable[fd]->offset += count;
+
+    save_bitmap(dmap, D_MAP_BLOCK);
+    save_inode(inode, fdTable[fd]->inode);
+
+    free(inode);
+    free(buffer);
+    
+    return count;
 }
 
 int fs_lseek( int fd, int offset) {

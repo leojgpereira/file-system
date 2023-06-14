@@ -11,7 +11,7 @@ FAKESHELL_OBJS = shellFake.o shellutilFake.o utilFake.o fsFake.o blockFake.o
 all: lnxsh
 
 lnxsh: $(FAKESHELL_OBJS)
-	$(CC) -o lnxsh $(FAKESHELL_OBJS)
+	$(CC) -o lnxsh $(FAKESHELL_OBJS) -lm
 
 shellFake.o : shell.c
 	$(CC) -Wall $(CFLAGS) -g -c -DFAKE -o shellFake.o shell.c
