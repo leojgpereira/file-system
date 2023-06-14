@@ -373,8 +373,22 @@ int fs_rmdir( char *fileName) {
     return 0;
 }
 
-int fs_cd( char *dirName) {
-    return -1;
+int fs_cd(char *dirName) {
+    /* Recupera o item de diretório correspondente a dirName */
+    DirectoryItem* directoryItem = get_directory_item(dirName);
+
+    /* Verifica se não existe o diretório */
+    if(directoryItem == NULL) {
+        return -1;
+    }
+
+    /* Altera o inode que corresponde ao diretório de trabalho atual no superbloco */
+    superblock->workingDirectory = directoryItem->inode;
+
+    /* Libera memória alocada */
+    free(directoryItem);
+
+    return 0;
 }
 
 int 

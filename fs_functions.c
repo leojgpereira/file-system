@@ -171,6 +171,42 @@ DirectoryItem* get_directory_items(int inodeNumber) {
     return directoryItems;
 }
 
+DirectoryItem* get_directory_item(char* itemName) {
+    /* Recupera o inode do diretório atual */
+    Inode* inode = find_inode(superblock->workingDirectory);
+    /* Recupera a lista de diretórios dentro do diretório atual */
+    DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
+
+    /* Declara ponteiro para um item de diretório */
+    DirectoryItem* directoryItem = NULL;
+
+    /* Verifica se foi retornado uma lista de items de diretórios */
+    if(directoryItems == NULL)
+        return NULL;
+
+    /* Percorre a lista de itens do diretórios */
+    for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
+        /* Verifica se há um diretório igual a itemName */
+        if(same_string(itemName, directoryItems[i].name)) {
+            /* Aloca memória para guardar o item encontrado */
+            directoryItem = (DirectoryItem*) malloc(sizeof(DirectoryItem));
+
+            /* Copia os bytes do item encontrado no vetor de diretórios para uma variável */
+            bcopy((unsigned char*) &directoryItems[i], (unsigned char*) directoryItem, sizeof(DirectoryItem));
+
+            /* Encerra o loop */
+            break;
+        }
+    }
+
+    /* Libera memória alocada dinâmicamente */
+    free(inode);
+    free(directoryItems);
+
+    /* Retorna ponteiro para o item encontrado */
+    return directoryItem;
+}
+
 int dir_exists(char* dirname) {
     /* Variável de controle */
     int exists = 0;
