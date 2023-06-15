@@ -383,8 +383,23 @@ int fs_write(int fd, char *buf, int count) {
     }
 }
 
-int fs_lseek( int fd, int offset) {
-    return -1;
+int fs_lseek(int fd, int offset) {
+    /* Recupera inode através do descritor de arquivos */
+    Inode* inode = find_inode(fdTable[fd]->inode);
+    printf("%d\n", inode->size);
+
+    /* Verifica se o inode se trata de um diretório */
+    if(inode->type != 0)
+        return -1;
+
+    /* Atualiza o deslocamento do arquivo aberto */
+    fdTable[fd]->offset = offset;
+
+    /* Libera memória alocada dinâmicamente */
+    free(inode);
+
+    /* Retorna o novo deslocamento */
+    return offset;
 }
 
 int fs_mkdir(char *fileName) {
