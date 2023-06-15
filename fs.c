@@ -191,6 +191,7 @@ int fs_open(char *fileName, int flags) {
         fd = fdTable[openedFileDescriptor];
         fd->mode = flags;
         fd->offset = 0;
+        fd->wasTouched = 0;
     } else {
         /* Cria um novo descritor de arquivos */
         fd = (File*) malloc(sizeof(File));
@@ -198,6 +199,7 @@ int fs_open(char *fileName, int flags) {
         fd->mode = flags;
         fd->offset = 0;
         fd->inode = directoryItem->inode;
+        fd->wasTouched = 0;
 
         /* Encontra uma posição NULL dentro do vetor de descritores de arquivo */
         int pos;
@@ -238,6 +240,10 @@ int fs_close(int fd) {
 }
 
 int fs_read( int fd, char *buf, int count) {
+    /* Verifica o modo do descritor de arquivos e retorna erro se não é compatível com a operação a ser realizada */
+    if(fdTable[fd]->mode != FS_O_RDONLY && fdTable[fd]->mode != FS_O_RDWR)
+        return -1;
+
     /* Recupera inode através do descritor de arquivos */
     Inode* inode = find_inode(fdTable[fd]->inode);
     printf("%d\n", inode->size);
@@ -264,7 +270,7 @@ int fs_read( int fd, char *buf, int count) {
     /* Calcula os blocos de inicio e término da leitura e byte de início */
     int blockStart = fdTable[fd]->offset / 512;
     int blockEnd = bytesCount / 512;
-    int byteStart = fdTable[fd]->offset;
+    int byteStart = fdTable[fd]->offset % 512;
 
     printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
 
@@ -290,6 +296,10 @@ int fs_read( int fd, char *buf, int count) {
 }
     
 int fs_write(int fd, char *buf, int count) {
+    /* Verifica o modo do descritor de arquivos e retorna erro se não é compatível com a operação a ser realizada */
+    if(fdTable[fd]->mode != FS_O_WRONLY && fdTable[fd]->mode != FS_O_RDWR)
+        return -1;
+
     /* Recupera inode através do descritor de arquivos */
     Inode* inode = find_inode(fdTable[fd]->inode);
     printf("%d\n", inode->size);
@@ -298,10 +308,16 @@ int fs_write(int fd, char *buf, int count) {
     if(inode->type != 0)
         return -1;
 
+    /* Verifica se o ponteiro de escrita está após o fim do arquivo */
+    if(fdTable[fd]->offset > inode->size) {
+        /* Preenche o intermédio entre o fim do arquivo e o ponteiro de escrita com bytes 0s */
+        fill_with_zero_bytes(inode, fdTable[fd]);
+    }
+
     /* Calcula os blocos de inicio e término da escrita e byte de início */
     int blockStart = fdTable[fd]->offset / 512;
     int blockEnd = (fdTable[fd]->offset + count) / 512;
-    int byteStart = fdTable[fd]->offset;
+    int byteStart = fdTable[fd]->offset % 512;
 
     printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
 
@@ -336,7 +352,7 @@ int fs_write(int fd, char *buf, int count) {
     }
 
     /* Calcula quantos bytes estão disponíveis para escrita */
-    int bytesCount = (blockCount * 512) - fdTable[fd]->offset;
+    int bytesCount = blockCount * 512 - byteStart;
 
     /* Aloca memória para a variável buffer */
     char* buffer = (char*) malloc(blockCount * 512 * sizeof(char));
@@ -361,16 +377,28 @@ int fs_write(int fd, char *buf, int count) {
     }
 
     /* Libera os blocos de dados sobrando quando o arquivo diminui de tamanho */
-    for(int i = blockStart + blockCount; i < ceil(inode->size / 512.0); i++) {
-        printf("Freeing block number %d\n", inode->direct[i]);
-        unset_bit(dmap, (inode->direct[i] - 47) / 8, (inode->direct[i] - 47) % 8);
-        inode->direct[i] = -1;
+    if(!fdTable[fd]->wasTouched) {
+        for(int i = blockStart + blockCount; i < ceil(inode->size / 512.0); i++) {
+            printf("Freeing block number %d\n", inode->direct[i]);
+            unset_bit(dmap, (inode->direct[i] - 47) / 8, (inode->direct[i] - 47) % 8);
+            inode->direct[i] = -1;
+        }
     }
 
-    /* Atualiza o tamanho do arquivo no seu respectivo inode */
-    inode->size = fdTable[fd]->offset + count;
     /* Atualiza o deslocamento dentro do arquivo */
     fdTable[fd]->offset += count;
+
+    /* Verifica se o deslocamento ficou maior que o tamanho do arquivo */
+    if(fdTable[fd]->offset > inode->size || (fdTable[fd]->offset < inode->size && !fdTable[fd]->wasTouched)) {
+        /* Atualiza o tamanho do arquivo no seu respectivo inode */
+        inode->size = fdTable[fd]->offset;
+    }
+
+    /* Atualiza variável para dizer que já foi realizado alguma operação de escrita no arquivo */
+    fdTable[fd]->wasTouched = 1;
+
+    printf("new file offset after writing: %d\n", fdTable[fd]->offset);
+    printf("new file size after writing: %d\n", inode->size);
 
     /* Salva o mapa de bits dos blocos de dados atualizado */
     save_bitmap(dmap, D_MAP_BLOCK);
@@ -383,8 +411,10 @@ int fs_write(int fd, char *buf, int count) {
 
     /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
     if(count <= bytesCount) {
+        printf("wrote %d bytes\n", count);
         return count;
     } else {
+        printf("wrote %d bytes\n", bytesCount);
         return bytesCount;
     }
 }

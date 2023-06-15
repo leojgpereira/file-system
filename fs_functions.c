@@ -330,3 +330,75 @@ int fd_exists(char* fileName) {
     /* Retorna o índice do descritor ou -1 caso ainda não haja um descritor aberto para o arquivo com nome igual a fileName */
     return index;
 }
+
+void fill_with_zero_bytes(Inode* inode, File* fd) {
+    /* Calcula os blocos de inicio e término da escrita e byte de início */
+    int blockStart = inode->size / 512;
+    int blockEnd = fd->offset / 512;
+    int byteStart = inode->size % 512;
+
+    printf("%d %d %d\n", blockStart, blockEnd, byteStart);
+
+    /* Carrega mapa de bits dos blocos de dados */
+    char dmap[251];
+    load_bitmap(dmap, D_MAP_BLOCK);
+
+    /* Variáveis de controle */
+    int blockNumber;
+    int blockCount = 0;
+
+    /* Aloca blocos de dados para a escrita */
+    for(int i = blockStart; i < blockEnd + 1 && i < (sizeof(inode->direct) / 4); i++) {
+        printf(">>>%d\n", inode->direct[i]);
+        /* Verifica se não há um bloco de dados alocado ni i-ésimo ponteiro direto */
+        if(inode->direct[i] == -1) {
+            /* Busca um bloco de dados livre */
+            blockNumber = find_free_bit_number(dmap);
+
+            /* Verifica se foi possível encontrar um bloco de dados disponível */
+            if(blockNumber == -1)
+                break;
+
+            /* Atualiza o i-ésimo ponteiro direto com o número do bloco de dados livre encontrado */
+            inode->direct[i] = blockNumber + DATA_BLOCK_START;
+
+            printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
+        }
+
+        /* Incrementa a quantidade de blocos necessários para realizar a escrita */
+        blockCount++;
+    }
+
+    /* Calcula quantos bytes estão disponíveis para escrita */
+    int bytesCount = blockCount * 512 - byteStart;
+
+    /* Aloca memória para a variável buffer */
+    char* buffer = (char*) malloc(blockCount * 512 * sizeof(char));
+
+    /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
+    for(int i = blockStart; i < blockStart + blockCount; i++) {
+        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    bzero(&buffer[byteStart], bytesCount);
+
+    /* Escreve os bytes do buffer nos blocos de dados correspondente ao do arquivo */
+    for(int i = blockStart; i < blockStart + blockCount; i++) {
+        printf("Writing to block number %d\n", inode->direct[i]);
+        block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    int count = fd->offset - inode->size;
+
+    if(count <= bytesCount) {
+        inode->size = fd->offset;
+    } else {
+        inode->size = bytesCount + byteStart;
+    }
+
+    printf("new file size filled with zeros: %d\n", inode->size);
+
+    save_bitmap(dmap, D_MAP_BLOCK);
+    
+    free(buffer);
+}

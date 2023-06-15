@@ -60,6 +60,7 @@ typedef struct __attribute__((packed)) {
     int inode;
     int offset;
     int mode;
+    int wasTouched;
 } File;
 
 int fs_ls();
