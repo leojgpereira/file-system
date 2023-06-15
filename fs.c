@@ -241,76 +241,101 @@ int fs_read( int fd, char *buf, int count) {
     return -1;
 }
     
-int fs_write( int fd, char *buf, int count) {
+int fs_write(int fd, char *buf, int count) {
+    /* Recupera inode através do descritor de arquivos */
     Inode* inode = find_inode(fdTable[fd]->inode);
     printf("%d\n", inode->size);
 
+    /* Verifica se o inode se trata de um diretório */
     if(inode->type != 0)
         return -1;
 
+    /* Calcula os blocos de inicio e término da escrita e byte de início */
     int blockStart = fdTable[fd]->offset / 512;
     int blockEnd = (fdTable[fd]->offset + count) / 512;
     int byteStart = fdTable[fd]->offset;
 
     printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
 
+    /* Carrega mapa de bits dos blocos de dados */
     char dmap[251];
     load_bitmap(dmap, D_MAP_BLOCK);
 
+    /* Variáveis de controle */
     int blockNumber;
     int blockCount = 0;
 
+    /* Aloca blocos de dados para a escrita */
     for(int i = blockStart; i < blockEnd + 1 && i < (sizeof(inode->direct) / 4); i++) {
         printf(">>>%d\n", inode->direct[i]);
+        /* Verifica se não há um bloco de dados alocado ni i-ésimo ponteiro direto */
         if(inode->direct[i] == -1) {
+            /* Busca um bloco de dados livre */
             blockNumber = find_free_bit_number(dmap);
 
+            /* Verifica se foi possível encontrar um bloco de dados disponível */
             if(blockNumber == -1)
-                return -1;
+                break;
 
+            /* Atualiza o i-ésimo ponteiro direto com o número do bloco de dados livre encontrado */
             inode->direct[i] = blockNumber + DATA_BLOCK_START;
 
             printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
         }
 
+        /* Incrementa a quantidade de blocos necessários para realizar a escrita */
         blockCount++;
     }
 
+    /* Calcula quantos bytes estão disponíveis para escrita */
     int bytesCount = (blockCount * 512) - fdTable[fd]->offset;
 
-    char* buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
+    /* Aloca memória para a variável buffer */
+    char* buffer = (char*) malloc(blockCount * 512 * sizeof(char));
 
-    for(int i = blockStart; i < blockEnd + 1; i++) {
+    /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
+    for(int i = blockStart; i < blockStart + blockCount; i++) {
         block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
 
     printf("+++%s\n", buf);
 
+    /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
     if(count <= bytesCount) {
+        /* Copia count bytes para a variável buffer */
         bcopy((unsigned char*) buf, (unsigned char*) &buffer[byteStart], count);
     } else {
+        /* Copia bytesCount bytes para a variável buffer */
         bcopy((unsigned char*) buf, (unsigned char*) &buffer[byteStart], bytesCount);
     }
 
-    for(int i = blockStart; i < blockEnd + 1; i++) {
+    /* Escreve os bytes do buffer nos blocos de dados correspondente ao do arquivo */
+    for(int i = blockStart; i < blockStart + blockCount; i++) {
         block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
 
-    for(int i = blockEnd + 1; i < ceil(inode->size / 512.0); i++) {
+    /* Libera os blocos de dados sobrando quando o arquivo diminui de tamanho */
+    for(int i = blockStart + blockCount; i < ceil(inode->size / 512.0); i++) {
         printf("Freeing block number %d\n", inode->direct[i]);
         unset_bit(dmap, (inode->direct[i] - 47) / 8, (inode->direct[i] - 47) % 8);
         inode->direct[i] = -1;
     }
 
+    /* Atualiza o tamanho do arquivo no seu respectivo inode */
     inode->size = fdTable[fd]->offset + count;
+    /* Atualiza o deslocamento dentro do arquivo */
     fdTable[fd]->offset += count;
 
+    /* Salva o mapa de bits dos blocos de dados atualizado */
     save_bitmap(dmap, D_MAP_BLOCK);
+    /* Salva o inode atualizado referente ao arquivo onde foi feita a escrita */
     save_inode(inode, fdTable[fd]->inode);
 
+    /* Libera memória alocada dinâmicamente */
     free(inode);
     free(buffer);
 
+    /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
     if(count <= bytesCount) {
         return count;
     } else {
