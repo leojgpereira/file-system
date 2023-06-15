@@ -245,6 +245,10 @@ int fs_read( int fd, char *buf, int count) {
     /* Verifica se o inode se trata de um diretório */
     if(inode->type != 0)
         return -1;
+
+    /* Verifica se a posição do ponteiro está depois do fim do arquivo */
+    if(fdTable[fd]->offset >= inode->size)
+        return -1;
     
     /* Calcula quantos bytes podem ser lidos no máximo */
     int availableBytes = inode->size - fdTable[fd]->offset;
@@ -274,6 +278,8 @@ int fs_read( int fd, char *buf, int count) {
 
     /* Copia bytesCount bytes para a variável buf */
     bcopy((unsigned char*) &buffer[byteStart], (unsigned char*) buf, bytesCount);
+
+    fdTable[fd]->offset += bytesCount;
 
     /* Libera memória alocada dinâmicamente */
     free(inode);
