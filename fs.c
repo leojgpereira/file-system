@@ -238,7 +238,49 @@ int fs_close(int fd) {
 }
 
 int fs_read( int fd, char *buf, int count) {
-    return -1;
+    /* Recupera inode através do descritor de arquivos */
+    Inode* inode = find_inode(fdTable[fd]->inode);
+    printf("%d\n", inode->size);
+
+    /* Verifica se o inode se trata de um diretório */
+    if(inode->type != 0)
+        return -1;
+    
+    /* Calcula quantos bytes podem ser lidos no máximo */
+    int availableBytes = inode->size - fdTable[fd]->offset;
+    int bytesCount;
+
+    /* Verifica se a quantidade de bytes a ser lida é menor ou igual a quantidade de bytes disponíveis para leitura */
+    if(count <= availableBytes) {
+        bytesCount = count;
+    } else {
+        bytesCount = availableBytes;
+    }
+
+    /* Calcula os blocos de inicio e término da leitura e byte de início */
+    int blockStart = fdTable[fd]->offset / 512;
+    int blockEnd = bytesCount / 512;
+    int byteStart = fdTable[fd]->offset;
+
+    printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
+
+    /* Aloca memória para a variável buffer */
+    char* buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
+
+    /* Lê os blocos de dados e guarda no buffer */
+    for(int i = blockStart; i < blockEnd + 1; i++) {
+        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    /* Copia bytesCount bytes para a variável buf */
+    bcopy((unsigned char*) &buffer[byteStart], (unsigned char*) buf, bytesCount);
+
+    /* Libera memória alocada dinâmicamente */
+    free(inode);
+    free(buffer);
+
+    /* Retorna quantidade de bytes lidos */
+    return bytesCount;
 }
     
 int fs_write(int fd, char *buf, int count) {
@@ -297,8 +339,6 @@ int fs_write(int fd, char *buf, int count) {
     for(int i = blockStart; i < blockStart + blockCount; i++) {
         block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
     }
-
-    printf("+++%s\n", buf);
 
     /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
     if(count <= bytesCount) {
