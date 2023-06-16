@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <math.h>
+#include <stdarg.h>
 #include "util.h"
 #include "common.h"
 #include "block.h"
@@ -18,6 +19,7 @@ Inode* inodes;
 File** fdTable;
 char* buffer;
 int numFileDescriptors;
+int unlink_addarg_count = 0;
 
 /* Guarda o nome das duas entradas iniciais de um diretório */
 char dirEntry1[MAX_FILE_NAME] = ".";
@@ -204,6 +206,7 @@ int fs_open(char *fileName, int flags) {
         fd->mode = flags;
         fd->offset = 0;
         fd->inode = directoryItem->inode;
+        fd->directoryInode = superblock->workingDirectory;
         fd->wasTouched = 0;
 
         /* Encontra uma posição NULL dentro do vetor de descritores de arquivo */
@@ -241,6 +244,9 @@ int fs_close(int fd) {
     char filename[MAX_FILE_NAME];
     bcopy((unsigned char*) fdTable[fd]->name, (unsigned char*) filename, strlen(fdTable[fd]->name) + 1);
 
+    /* Guarda o inode do diretório ao qual o arquivo pertence */
+    int directoryInode = fdTable[fd]->directoryInode;
+
     /* Libera a memória alocada para o descritor */
     free(fdTable[fd]);
     /* Atualiza o ponteiro no vetor de descritores de arquivos para NULL */
@@ -251,9 +257,19 @@ int fs_close(int fd) {
     printf("There are currently %d links to the file!\n", inode->linkCount);
 
     /* Verifica se o número de referências para o arquivo é 0 */
-    if(inode->linkCount < 1)
+    if(inode->linkCount < 1) {
         /* Chama função fs_unlink para remover arquivo, pois não há referências para ele */
-        fs_unlink(filename);
+        printf("unlink arg count = %d\n", unlink_addarg_count);
+        /* Modifica a contagem de argumentos adicionais da função fs_unlink para executar um unlink */
+        unlink_addarg_count = 1;
+        printf("unlink arg count = %d\n", unlink_addarg_count);
+        printf("directory inode = %d\n", directoryInode);
+        fs_unlink(filename, directoryInode);
+        printf("unlink arg count = %d\n", unlink_addarg_count);
+        /* Modifica a contagem de argumentos adicionais da função fs_unlink para o valor padrão 0 */
+        unlink_addarg_count = 0;
+        printf("unlink arg count = %d\n", unlink_addarg_count);
+    }
 
     /* Libera memória alocada dinâmicamente */
     free(inode);
@@ -823,13 +839,34 @@ int fs_link(char *old_fileName, char *new_fileName) {
     return 0;
 }
 
-int fs_unlink(char *fileName) {
+int fs_unlink(char *fileName, ...) {
+    printf("unlink add arg count = %d\n", unlink_addarg_count);
+    /* Variável utilizada para guardar o número do inode do diretório onde o arquivo que será removido pertence */
+    int dirInodeNumber;
+
+    /* Verifica se não está sendo passado o número do inode do diretório na função fs_unlink */
+    if(unlink_addarg_count == 0) {
+        /* Se não, seta o número do inode para o número do inode do diretório atual */
+        dirInodeNumber = superblock->workingDirectory;
+    } else {
+        /* Se sim, seta o número do inode para o número do inode recebido no parâmetro da função */
+        va_list args;
+
+        va_start(args, fileName);
+        dirInodeNumber = va_arg(args, int);
+        printf("dir inode number = %d\n", dirInodeNumber);  
+
+        va_end(args);
+    }
+
     /* Recupera o item referente ao arquivo buscado */
-    DirectoryItem* directoryItem = get_directory_item(fileName);
+    DirectoryItem* directoryItem = get_directory_item(fileName, dirInodeNumber);
 
     /* Verifica se não encontrou um arquivo com nome igual a fileName */
     if(directoryItem == NULL)
         return -1;
+
+    printf("inode number = %d\n", directoryItem->inode);
 
     /* Recupera o inode referente ao arquivo para o qual será excluido um soft link */
     Inode* softLinkInode = find_inode(directoryItem->inode);
@@ -854,14 +891,14 @@ int fs_unlink(char *fileName) {
     }
 
     /* Recupera a lista de diretórios/arquivos dentro do diretório atual */
-    DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
+    DirectoryItem* directoryItems = get_directory_items(dirInodeNumber);
 
     /* Verifica se foi retornado uma lista de diretórios/arquivos */
     if(directoryItems == NULL)
         return -1;
 
     /* Recupera inode do diretório atual */
-    Inode* inode = find_inode(superblock->workingDirectory);
+    Inode* inode = find_inode(dirInodeNumber);
 
     /* Percorre a lista de diretórios/arquivos */
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
@@ -917,7 +954,7 @@ int fs_unlink(char *fileName) {
 
             /* Altera o tamanho do diretório atual no seu inode e salva no disco o inode */
             inode->size -= sizeof(DirectoryItem);
-            save_inode(inode, superblock->workingDirectory);
+            save_inode(inode, dirInodeNumber);
 
             /* Calcula quantos blocos são necessários para guardar os diretórios/arquivos restantes */
             numBlocks = (inode->size / 512) + 1;

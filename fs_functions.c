@@ -173,11 +173,32 @@ DirectoryItem* get_directory_items(int inodeNumber) {
     return directoryItems;
 }
 
-DirectoryItem* get_directory_item(char* itemName) {
-    /* Recupera o inode do diretório atual */
-    Inode* inode = find_inode(superblock->workingDirectory);
-    /* Recupera a lista de diretórios dentro do diretório atual */
-    DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
+DirectoryItem* get_directory_item(char* itemName, ...) {
+    printf("unlink add arg count = %d\n", unlink_addarg_count);
+    /* Variável utilizada para guardar o número do inode do diretório onde o arquivo que será buscado pertence */
+    int dirInodeNumber;
+
+    /* Verifica se não está sendo passado um parâmetro adicional para a função */
+    if(unlink_addarg_count == 0) {
+        /* Se não, seta o número do inode para o número do inode do diretório atual */
+        dirInodeNumber = superblock->workingDirectory;
+    } else {
+        /* Se sim, seta o número do inode para o número do inode recebido no parâmetro da função */
+        va_list args;
+
+        va_start(args, itemName);
+
+        dirInodeNumber = va_arg(args, int);
+
+        va_end(args);
+    }
+
+    printf("dir inode number = %d\n", dirInodeNumber);
+
+    /* Recupera o inode do diretório */
+    Inode* inode = find_inode(dirInodeNumber);
+    /* Recupera a lista de diretórios dentro do diretório */
+    DirectoryItem* directoryItems = get_directory_items(dirInodeNumber);
 
     /* Declara ponteiro para um item de diretório */
     DirectoryItem* directoryItem = NULL;
@@ -318,8 +339,8 @@ int fd_exists(char* fileName) {
 
     /* Percorre todas as posições do vetor de descritores de arquivos */
     for(int i = 0; i < FD_TABLE_SIZE; i++) {
-        /* Verifica de a posição tem um descritor válido e se esse tem o mesmo nome de arquivo que fileName */
-        if(fdTable[i] != NULL && same_string(fileName, fdTable[i]->name)) {
+        /* Verifica se a posição tem um descritor válido e se esse tem o mesmo nome de arquivo que fileName */
+        if(fdTable[i] != NULL && same_string(fileName, fdTable[i]->name) && fdTable[i]->directoryInode == superblock->workingDirectory) {
             /* Atualiza a variável de controle para guardar a posição do vetor que já contém um descritor de arquivo aberto para o arquivo fileName */
             index = i;
 

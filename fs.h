@@ -25,7 +25,7 @@ int fs_mkdir( char *fileName);
 int fs_rmdir( char *fileName);
 int fs_cd( char *dirName);
 int fs_link( char *old_fileName, char *new_fileName);
-int fs_unlink( char *fileName);
+int fs_unlink( char *fileName, ...);
 int fs_stat( char *fileName, fileStat *buf);
 
 #define MAX_FILE_NAME 32
@@ -59,6 +59,7 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     char name[MAX_FILE_NAME];
     int inode;
+    int directoryInode;
     int offset;
     int mode;
     int wasTouched;
