@@ -234,12 +234,28 @@ int fs_close(int fd) {
     if(fd < 0 || fd >= FD_TABLE_SIZE || fdTable[fd] == NULL)
         return -1;
 
+    /* Carrega inode correspondente ao arquivo do descritor de arquivos */
+    Inode* inode = find_inode(fdTable[fd]->inode);
+
+    char filename[MAX_FILE_NAME];
+    bcopy((unsigned char*) fdTable[fd]->name, (unsigned char*) filename, strlen(fdTable[fd]->name) + 1);
+
     /* Libera a memória alocada para o descritor */
     free(fdTable[fd]);
     /* Atualiza o ponteiro no vetor de descritores de arquivos para NULL */
     fdTable[fd] = NULL;
     /* Decrementa o número de descritores de arquivos */
     numFileDescriptors--;
+
+    /* Verifica se o número de referências para o arquivo é 0 */
+    if(inode->linkCount < 1)
+        /* Chama função fs_unlink para remover arquivo, pois não há referências para ele */
+        fs_unlink(filename);
+
+    /* Libera memória alocada dinâmicamente */
+    free(inode);
+
+    printf("Closed successfully!\n");
 
     return 0;
 }
@@ -804,8 +820,133 @@ int fs_link(char *old_fileName, char *new_fileName) {
     return 0;
 }
 
-int fs_unlink( char *fileName) {
-    return -1;
+int fs_unlink(char *fileName) {
+    /* Recupera o item referente ao arquivo buscado */
+    DirectoryItem* directoryItem = get_directory_item(fileName);
+
+    /* Verifica se não encontrou um arquivo com nome igual a fileName */
+    if(directoryItem == NULL)
+        return -1;
+
+    /* Recupera o inode referente ao arquivo para o qual será excluido um soft link */
+    Inode* softLinkInode = find_inode(directoryItem->inode);
+
+    /* Verifica se o inode corresponde a um inode de diretório e caso sim retorna erro */
+    if(softLinkInode->type != 0)
+        return -1;
+
+    /* Procura descritor de arquivo aberto referente ao arquivo */
+    int fdNumber = fd_exists(fileName);
+
+    /* Verifica se há um descritor de arquivos aberto e se o arquivo só tem uma referência para ele */
+    if(fdNumber > -1 && softLinkInode->linkCount == 1) {
+        /* Decrementa número de referências do arquivo para 0 */
+        softLinkInode->linkCount--;
+        /* Salva o inode do arquivo modificado */
+        save_inode(softLinkInode, directoryItem->inode);
+
+        return 0;
+    }
+
+    /* Recupera a lista de diretórios dentro do diretório atual */
+    DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
+
+    /* Verifica se foi retornado uma lista de diretórios */
+    if(directoryItems == NULL)
+        return -1;
+
+    /* Recupera inode do diretório atual */
+    Inode* inode = find_inode(superblock->workingDirectory);
+
+    /* Percorre a lista de diretórios */
+    for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
+        /* Verifica se o nome do diretório é o mesmo que está sendo procurado */
+        if(same_string(directoryItems[i].name, fileName)) {
+            printf("Soft Deleted\n");
+
+            /* Carrega o inode do diretório a ser removido */
+            // Inode* dirInode = find_inode(directoryItems[i].inode);
+
+            /* Verifica se o inode não é de um diretório ou se o diretório não está vazio */
+            // if(dirInode->type != 1 || dirInode->size != (2 * sizeof(DirectoryItem)))
+            //     return -1;
+
+            /* Copia o vetor de bits dos inodes modificado de volta para o buffer e escreve de volta no disco */
+            // bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
+            // block_write(I_MAP_BLOCK, buffer);
+
+            /* Move os itens uma posição a menos a partir do arquivo removido */
+            for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
+                directoryItems[j] = directoryItems[j + 1];
+            }
+
+            /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
+            inode->size -= sizeof(DirectoryItem);
+            save_inode(inode, superblock->workingDirectory);
+
+            /* Calcula quantos blocos são necessários para guardar os diretórios restantes */
+            int numBlocks = (inode->size / 512) + 1;
+
+            /* Copia a lista de diretórios modificada de volta para a variável buffer */
+            buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
+            bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, inode->size);
+
+            /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
+            for(int i = 0; i < numBlocks; i++) {
+                block_write(inode->direct[i], &buffer[i * 512]);
+            }
+
+            /* Lê o vetor de bits dos blocos de dados do disco */
+            // block_read(D_MAP_BLOCK, buffer);
+
+            /* Verifica se há somente uma referência para o arquivo */
+            if(softLinkInode->linkCount <= 1) {
+                /* Carrega o vetor de bits dos inodes do buffer para um vetor */
+                char imap[64];
+                load_bitmap(imap, I_MAP_BLOCK);
+
+                /* Seta para 0 o bit correspondente ao inode do arquivo a ser removido */
+                unset_bit(imap, (directoryItems[i].inode / 8), (directoryItems[i].inode % 8));
+
+                save_bitmap(imap, I_MAP_BLOCK);
+
+                /* Carrega o vetor de bits dos blocos de dados do buffer para um vetor */
+                char dmap[251];
+                load_bitmap(dmap, D_MAP_BLOCK);
+
+                /* Calcula quantos blocos de dados o arquivo removido estava ocupando */
+                numBlocks = (int) ceil((double) softLinkInode->size / 512);
+
+                /* Seta para 0 os bits correspondentes aos blocos de dados do diretório removido */
+                for(int i = 0; i < numBlocks; i++) {
+                    unset_bit(dmap, (softLinkInode->direct[i] - 47) / 8, (softLinkInode->direct[i] - 47) % 8);
+                }
+
+                /* Copia o vetor de bits dos blocos de dados modificado de volta para o buffer e escreve de volta no disco */
+                // bcopy((unsigned char*) dmap, (unsigned char*) buffer, 251);
+                // block_write(D_MAP_BLOCK, buffer);
+                save_bitmap(dmap, D_MAP_BLOCK);
+            } else {
+                softLinkInode->linkCount--;
+                save_inode(softLinkInode, directoryItems[i].inode);
+            }
+            
+            /* Libera memória alocada dinâmicamente */
+            free(buffer);
+            // free(dirInode);
+
+            /* Encerra o loop pela lista de diretórios */
+            break;
+        }
+    }
+
+    /* Libera memória alocada dinâmicamente */
+    free(directoryItems);
+    free(directoryItem);
+    free(softLinkInode);
+    free(inode);
+
+    return 0;
 }
 
 int fs_stat( char *fileName, fileStat *buf) {
