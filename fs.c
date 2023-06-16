@@ -247,6 +247,8 @@ int fs_close(int fd) {
     /* Decrementa o número de descritores de arquivos */
     numFileDescriptors--;
 
+    printf("There are currently %d links to the file!\n", inode->linkCount);
+
     /* Verifica se o número de referências para o arquivo é 0 */
     if(inode->linkCount < 1)
         /* Chama função fs_unlink para remover arquivo, pois não há referências para ele */
@@ -836,16 +838,20 @@ int fs_unlink(char *fileName) {
         return -1;
 
     /* Procura descritor de arquivo aberto referente ao arquivo */
-    int fdNumber = fd_exists(fileName);
+    // int fdNumber = fd_exists(fileName);
 
     /* Verifica se há um descritor de arquivos aberto e se o arquivo só tem uma referência para ele */
-    if(fdNumber > -1 && softLinkInode->linkCount == 1) {
-        /* Decrementa número de referências do arquivo para 0 */
-        softLinkInode->linkCount--;
-        /* Salva o inode do arquivo modificado */
-        save_inode(softLinkInode, directoryItem->inode);
+    for(int i = 0; i < FD_TABLE_SIZE; i++)  {
+        if(fdTable[i] != NULL && fdTable[i]->inode == directoryItem->inode && softLinkInode->linkCount <= 1) {
+            /* Decrementa número de referências do arquivo para 0 */
+            softLinkInode->linkCount = 0;
+            /* Salva o inode do arquivo modificado */
+            save_inode(softLinkInode, directoryItem->inode);
 
-        return 0;
+            bcopy((unsigned char*) directoryItem->name, (unsigned char*) fdTable[i]->name, strlen(directoryItem->name) + 1);
+
+            return 0;
+        }
     }
 
     /* Recupera a lista de diretórios dentro do diretório atual */
@@ -875,29 +881,9 @@ int fs_unlink(char *fileName) {
             // bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
             // block_write(I_MAP_BLOCK, buffer);
 
-            /* Move os itens uma posição a menos a partir do arquivo removido */
-            for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
-                directoryItems[j] = directoryItems[j + 1];
-            }
+            int numBlocks;
 
-            /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
-            inode->size -= sizeof(DirectoryItem);
-            save_inode(inode, superblock->workingDirectory);
-
-            /* Calcula quantos blocos são necessários para guardar os diretórios restantes */
-            int numBlocks = (inode->size / 512) + 1;
-
-            /* Copia a lista de diretórios modificada de volta para a variável buffer */
-            buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
-            bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, inode->size);
-
-            /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
-            for(int i = 0; i < numBlocks; i++) {
-                block_write(inode->direct[i], &buffer[i * 512]);
-            }
-
-            /* Lê o vetor de bits dos blocos de dados do disco */
-            // block_read(D_MAP_BLOCK, buffer);
+            printf("There are currently %d links to the file!\n", softLinkInode->linkCount);
 
             /* Verifica se há somente uma referência para o arquivo */
             if(softLinkInode->linkCount <= 1) {
@@ -929,7 +915,37 @@ int fs_unlink(char *fileName) {
             } else {
                 softLinkInode->linkCount--;
                 save_inode(softLinkInode, directoryItems[i].inode);
+
+                printf("Updated inode %d link count!\n", directoryItems[i].inode);
             }
+
+            printf("There are currently %d links to the file!\n", softLinkInode->linkCount);
+
+            /* Move os itens uma posição a menos a partir do arquivo removido */
+            for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
+                directoryItems[j] = directoryItems[j + 1];
+            }
+
+            /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
+            inode->size -= sizeof(DirectoryItem);
+            save_inode(inode, superblock->workingDirectory);
+
+            /* Calcula quantos blocos são necessários para guardar os diretórios restantes */
+            numBlocks = (inode->size / 512) + 1;
+
+            /* Copia a lista de diretórios modificada de volta para a variável buffer */
+            buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
+            bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, inode->size);
+
+            /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
+            for(int i = 0; i < numBlocks; i++) {
+                block_write(inode->direct[i], &buffer[i * 512]);
+            }
+
+            /* Lê o vetor de bits dos blocos de dados do disco */
+            // block_read(D_MAP_BLOCK, buffer);
+
+            
             
             /* Libera memória alocada dinâmicamente */
             free(buffer);
