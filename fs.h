@@ -47,7 +47,8 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     int type;
     int size;
-    int direct[9];
+    int linkCount;
+    int direct[8];
 } Inode;
 
 typedef struct __attribute__((packed)) {

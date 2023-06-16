@@ -99,6 +99,11 @@ int fs_mkfs( void) {
     /* Cria vetor de i-nodes */
     inodes = (Inode*) malloc(NUMBER_OF_INODES * sizeof(Inode));
 
+    /* Seta linkCount de todos os inodes para inicialmente 1 */
+    for(int i = 0; i < NUMBER_OF_INODES; i++) {
+        inodes[i].linkCount = 1;
+    }
+
     /* Define o primeiro i-node como sendo o i-node correspondente ao diretório raiz */
     inodes[0].type = 1;
     inodes[0].size = 2 * sizeof(DirectoryItem);
@@ -269,13 +274,13 @@ int fs_read( int fd, char *buf, int count) {
 
     /* Calcula os blocos de inicio e término da leitura e byte de início */
     int blockStart = fdTable[fd]->offset / 512;
-    int blockEnd = bytesCount / 512;
+    int blockEnd = (fdTable[fd]->offset + bytesCount) / 512;
     int byteStart = fdTable[fd]->offset % 512;
 
     printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
 
     /* Aloca memória para a variável buffer */
-    char* buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
+    buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
 
     /* Lê os blocos de dados e guarda no buffer */
     for(int i = blockStart; i < blockEnd + 1; i++) {
@@ -355,7 +360,7 @@ int fs_write(int fd, char *buf, int count) {
     int bytesCount = blockCount * 512 - byteStart;
 
     /* Aloca memória para a variável buffer */
-    char* buffer = (char*) malloc(blockCount * 512 * sizeof(char));
+    buffer = (char*) malloc(blockCount * 512 * sizeof(char));
 
     /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
     for(int i = blockStart; i < blockStart + blockCount; i++) {
@@ -499,6 +504,7 @@ int fs_mkdir(char *fileName) {
     Inode* newInode = (Inode*) malloc(sizeof(Inode));
     newInode->type = 1;
     newInode->size = 2 * sizeof(DirectoryItem);
+    newInode->linkCount = 1;
     newInode->direct[0] = blockNumber + DATA_BLOCK_START;
 
     /* Salva o inode correspondente ao diretório no disco */
@@ -684,9 +690,118 @@ int fs_cd(char *dirName) {
     return 0;
 }
 
-int 
-fs_link( char *old_fileName, char *new_fileName) {
-    return -1;
+int fs_link(char *old_fileName, char *new_fileName) {
+    /* Verifica se já há um diretório/arquivo com o mesmo nome do soft link e retorna um erro caso sim */
+    if(item_exists(new_fileName))
+        return -1;
+
+    /* Recupera o item referente ao arquivo buscado */
+    DirectoryItem* directoryItem = get_directory_item(old_fileName);
+
+    /* Verifica se não encontrou um arquivo com nome igual a old_fileName */
+    if(directoryItem == NULL)
+        return -1;
+
+    /* Recupera o inode referente ao arquivo para o qual será criado um soft link */
+    Inode* inode = find_inode(directoryItem->inode);
+
+    /* Verifica se o inode corresponde a um inode de diretório e caso sim retorna erro */
+    if(inode->type != 0)
+        return -1;
+
+    /* Cria um novo item de diretório com número de inode igual ao número do inode do arquivo old_fileName */
+    DirectoryItem* newDirectoryItem = (DirectoryItem*) malloc(sizeof(DirectoryItem));
+    bcopy((unsigned char*) new_fileName, (unsigned char*) newDirectoryItem->name, strlen(new_fileName) + 1);
+    newDirectoryItem->inode = directoryItem->inode;
+
+    /* Carrega o inode do diretório atual */
+    Inode* workingDirectoryInode = find_inode(superblock->workingDirectory);
+
+    /* Calcula o bloco de inicio e termino correspondente ao diretório atual e opróximo byte livre para ser escrito (byteStart) */
+    int blockStart = workingDirectoryInode->size / 512;
+    int blockEnd = (workingDirectoryInode->size + sizeof(DirectoryItem)) / 512;
+    int byteStart = workingDirectoryInode->size % 512;
+
+    printf("%d %d %d\n", blockStart, blockEnd, byteStart);
+
+    /* Declara vetor de bits para guardar o vetor de bits dos blocos de dados */
+    char dmap[251];
+    load_bitmap(dmap, D_MAP_BLOCK);
+
+    /* Variáveis de controle */
+    int blockNumber;
+    int blockCount = 0;
+
+    /* Aloca blocos de dados para a escrita */
+    for(int i = blockStart; i < blockEnd + 1 && i < (sizeof(workingDirectoryInode->direct) / 4); i++) {
+        printf(">>>%d\n", workingDirectoryInode->direct[i]);
+
+        /* Verifica se não há um bloco de dados alocado ni i-ésimo ponteiro direto */
+        if(workingDirectoryInode->direct[i] == -1) {
+            /* Busca um bloco de dados livre */
+            blockNumber = find_free_bit_number(dmap);
+
+            /* Verifica se foi possível encontrar um bloco de dados disponível */
+            if(blockNumber == -1)
+                break;
+
+            /* Atualiza o i-ésimo ponteiro direto com o número do bloco de dados livre encontrado */
+            workingDirectoryInode->direct[i] = blockNumber + DATA_BLOCK_START;
+
+            printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
+        }
+
+        /* Incrementa a quantidade de blocos necessários para realizar a escrita */
+        blockCount++;
+    }
+
+    /* Calcula quantos bytes estão disponíveis para escrita */
+    int bytesCount = blockCount * 512 - byteStart;
+
+    /* Aloca memória para a variável buffer */
+    buffer = (char*) malloc(blockCount * 512 * sizeof(char));
+
+    /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
+    for(int i = blockStart; i < blockStart + blockCount; i++) {
+        block_read(workingDirectoryInode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
+    if(sizeof(DirectoryItem) <= bytesCount) {
+        /* Copia sizeof(DirectoryItem) bytes para a variável buffer */
+        bcopy((unsigned char*) newDirectoryItem, (unsigned char*) &buffer[byteStart], sizeof(DirectoryItem));
+    } else {
+        /* Retorna erro caso não haja espaço disponível para inserir o novo link */
+        return -1;
+    }
+
+    /* Escreve os bytes do buffer nos blocos de dados correspondente ao do arquivo */
+    for(int i = blockStart; i < blockStart + blockCount; i++) {
+        block_write(workingDirectoryInode->direct[i], &buffer[(i - blockStart) * 512]);
+    }
+
+    /* Atualiza o tamanho do diretório atual */
+    workingDirectoryInode->size += sizeof(DirectoryItem);
+    /* Incrementa a quantidade de soft links do arquivo para o qual está sendo criado um novo link */
+    inode->linkCount++;
+
+    printf("new file size after writing: %d\n", workingDirectoryInode->size);
+
+    /* Salva o mapa de bits dos blocos de dados atualizado */
+    save_bitmap(dmap, D_MAP_BLOCK);
+    /* Salva o inode atualizado referente ao arquivo onde foi feita a escrita */
+    save_inode(workingDirectoryInode, superblock->workingDirectory);
+    /* Salva o inode modificado do arquivo que está sendo criado o soft link */
+    save_inode(inode, directoryItem->inode);
+
+    /* Libera memória alocada dinâmicamente */
+    free(buffer);
+    free(inode);
+    free(workingDirectoryInode);
+    free(directoryItem);
+    free(newDirectoryItem);
+
+    return 0;
 }
 
 int fs_unlink( char *fileName) {
@@ -707,11 +822,26 @@ int fs_ls() {
     if(directoryItems == NULL)
         return -1;
 
+    /* Ponteiro para inode de um item de diretório */
+    Inode* itemInode;
+
     /* Percorre a lista de diretórios */
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
-        printf("\033[1;34m");
-        printf("%s -> %d\n", directoryItems[i].name, directoryItems[i].inode);
-        printf("\033[0m");
+        /* Busca o inode referente ao arquivo/diretório */
+        itemInode = find_inode(directoryItems[i].inode);
+
+        /* Muda a cor do texto para nomes de diretórios */
+        if(itemInode->type == 1)
+            printf("\033[1;34m");
+
+        printf("%-3d %-3d %-32s\n", directoryItems[i].inode, itemInode->linkCount, directoryItems[i].name);
+
+        /* Retaura a cor do texto padrão após mudar a cor para nomes de diretórios */
+        if(itemInode->type == 1)
+            printf("\033[0m");
+
+        /* Libera memória alocada dinâmicamente */
+        free(itemInode);
     }
 
     /* Libera memória alocada dinâmicamente */

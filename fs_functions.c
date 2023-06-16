@@ -28,7 +28,7 @@ int get_bit(char* bytes, int index, int n) {
 
 void load_bitmap(char* bitmap, int block) {
     /* Aloca memória para variável buffer */
-    buffer = (char*) malloc(512 * sizeof(char));
+    char* buffer = (char*) malloc(512 * sizeof(char));
 
     /* Busca o vetor de bits e copia para variável bitmap */
     block_read(block, buffer);
@@ -72,7 +72,7 @@ int find_free_bit_number(char* bitmap) {
 
 void save_bitmap(char* bitmap, int block) {
     /* Aloca memória para variável buffer */
-    buffer = (char*) malloc(512 * sizeof(char));
+    char* buffer = (char*) malloc(512 * sizeof(char));
     bzero(buffer, 512);
 
     /* Copia vetor de bits para a variável buffer */
@@ -88,7 +88,7 @@ Inode* find_inode(int inodeNumber) {
         return NULL;
 
     /* Aloca memória para a variável buffer */
-    buffer = (char*) malloc(1024 * sizeof(char));
+    char* buffer = (char*) malloc(1024 * sizeof(char));
 
     /* Zera todos os bytes da variável buffer e copia o inode correspondente para o buffer */
     bzero(buffer, 1024);
@@ -153,7 +153,7 @@ DirectoryItem* get_directory_items(int inodeNumber) {
     int numBlocks = (inode->size / 512) + 1;
 
     /* Cria uma variável buffer para armazenar os blocos de dados */
-    buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
+    char* buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
 
     /* Lê cada bloco de dados correspondente ao diretório a ser consultado */
     for(int i = 0; i < numBlocks; i++) {
@@ -267,6 +267,7 @@ DirectoryItem* create_new_file(char* fileName) {
     Inode* newInode = (Inode*) malloc(sizeof(Inode));
     newInode->type = 0;
     newInode->size = 0;
+    newInode->linkCount = 1;
     for(int i = 0; i < (sizeof(newInode->direct) / 4); i++) {
         newInode->direct[i] = -1;
     }
@@ -282,7 +283,7 @@ DirectoryItem* create_new_file(char* fileName) {
     int blockEnd = (inode->size + sizeof(DirectoryItem)) / 512;
     int byteStart = inode->size % 512;
 
-    buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
+    char* buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
 
     /* Lê os blocos onde o diretório atual está salvo */
     for(int i = blockStart; i < blockEnd + 1; i++) {
