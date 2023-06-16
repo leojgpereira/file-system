@@ -28,7 +28,7 @@ char dirEntry2[MAX_FILE_NAME] = "..";
 /* Inclui funções adicionais que criamos para uma melhor organização do código */
 #include "fs_functions.c"
 
-void fs_init( void) {
+void fs_init(void) {
     block_init();
 
     /* Aloca memória para a variável buffer */
@@ -52,9 +52,6 @@ void fs_init( void) {
         printf("Disco formatado!\n");
     } else {
         printf("Disco não formatado!\n");
-        
-        /* Libera memória alocada dinâmicamente */
-        free(superblock);
 
         /* Invoca a função responsável por formatar o disco */
         fs_mkfs();
@@ -65,10 +62,7 @@ void fs_init( void) {
     numFileDescriptors = 0;
 }
 
-int fs_mkfs( void) {
-    /* Inicializa a estrutura superblock */
-    superblock = (Superblock*) malloc(sizeof(Superblock));
-
+int fs_mkfs(void) {
     /* Inicializa as informações do superbloco */
     bcopy((unsigned char*) MAGIC_NUMBER, (unsigned char*) superblock->magicNumber, 5);
     superblock->diskSize = FS_SIZE;
