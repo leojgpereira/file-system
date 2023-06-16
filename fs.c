@@ -986,7 +986,24 @@ int fs_unlink(char *fileName, ...) {
 }
 
 int fs_stat( char *fileName, fileStat *buf) {
-    return -1;
+        /* Recupera o item referente ao arquivo buscado */
+    DirectoryItem* directoryItem = get_directory_item(fileName);
+
+    /* Verifica se não encontrou um arquivo com nome igual a old_fileName */
+    if(directoryItem == NULL)
+        return -1;
+
+    /* Recupera o inode referente ao arquivo para o qual será criado um soft link */
+    Inode* inode = find_inode(directoryItem->inode);
+
+    /* Copia as informações sobre o arquivo/diretório para o buffer passado por referência */
+    buf->inodeNo = directoryItem->inode;
+    buf->type = inode->type == 0 ? FILE_TYPE : DIRECTORY;
+    buf->links = inode->linkCount;
+    buf->size = inode->size;
+    buf->numBlocks = ceil((double) inode->size / 512);
+
+    return 0;
 }
 
 int fs_ls() {
