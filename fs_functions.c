@@ -101,7 +101,7 @@ Inode* find_inode(int inodeNumber) {
 
     /* Copia os blocos para a variável buffer */
     for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_read(i + INODE_START, &buffer[i * BLOCK_SIZE]);
+        block_read(i + INODE_START, &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Copia os bytes do buffer para uma estrutura inode */
@@ -142,7 +142,7 @@ void save_inode(Inode* inode, int inodeNumber) {
 
     /* Copia os blocos para a variável buffer */
     for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_read(i + INODE_START, &buffer_[i * BLOCK_SIZE]);
+        block_read(i + INODE_START, &buffer_[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Copia os bytes correspondentes ao inode na variável buffer na posição correspondente a posição do inode */
@@ -150,7 +150,7 @@ void save_inode(Inode* inode, int inodeNumber) {
 
     /* Copia os blocos da variável buffer para o disco */
     for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_write(i + INODE_START, &buffer_[i * BLOCK_SIZE]);
+        block_write(i + INODE_START, &buffer_[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Libera memória alocada dinâmicamente */
