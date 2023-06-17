@@ -32,12 +32,12 @@ void fs_init(void) {
     block_init();
 
     /* Aloca memória para a variável buffer */
-    buffer = (char*) malloc(512 * sizeof(char));
+    buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
 
     /* Zera todos os bytes da variável buffer */
-    bzero(buffer, 512);
+    bzero(buffer, BLOCK_SIZE);
     /* Lê o primeiro bloco do disco (superbloco) e armazena na variável buffer */
-    block_read(0, buffer);
+    block_read(SUPERBLOCK_BLOCK_NUMBER, buffer);
 
     /* Inicializa a estrutura superblock */
     superblock = (Superblock*) malloc(sizeof(Superblock));
@@ -48,11 +48,7 @@ void fs_init(void) {
     free(buffer);
 
     /* Checa se o disco está formatado comparando o valor do número mágico */
-    if(same_string(superblock->magicNumber, MAGIC_NUMBER)) {
-        printf("Disco formatado!\n");
-    } else {
-        printf("Disco não formatado!\n");
-
+    if(!same_string(superblock->magicNumber, MAGIC_NUMBER)) {
         /* Invoca a função responsável por formatar o disco */
         fs_mkfs();
     }
@@ -75,60 +71,59 @@ int fs_mkfs(void) {
     superblock->dataBlockStart = DATA_BLOCK_START;
 
     /* Aloca memória para a variável buffer */
-    buffer = (char*) malloc(512 * sizeof(char));
+    buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
 
     /* Zera os bytes do buffer, copia os bytes da estrutura superblock para o buffer e escreve o conteúdo no primeiro bloco (superblock) do disco */
-    bzero(buffer, 512);
+    bzero(buffer, BLOCK_SIZE);
     bcopy((unsigned char*) superblock, (unsigned char*) buffer, sizeof(Superblock));
-    block_write(0, buffer);
+    block_write(SUPERBLOCK_BLOCK_NUMBER, buffer);
 
-    /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro i-node para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos i-nodes */
-    bzero(buffer, 512);
-    set_bit(buffer, 0, 7);
-    block_write(I_MAP_BLOCK, buffer);
+    /* Escreve bytes 0s nos blocos alocados para armazenar inodes */
+    int bufferSize = BLOCK_SIZE * (int) ceil((double) (NUMBER_OF_INODES * sizeof(Inode)) / BLOCK_SIZE);
+    buffer = realloc(buffer, bufferSize);
+    bzero(buffer, bufferSize);
 
-    /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro bloco de dados para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos blocos de dados */
-    bzero(buffer, 512);
-    set_bit(buffer, 0, 7);
-    block_write(D_MAP_BLOCK, buffer);
+    /* Calcula quantos blocos são necessários para alocar a quantidade de inodes projetada */
+    int numInodeBlocks = bufferSize / BLOCK_SIZE;
 
-    /* Cria vetor de i-nodes */
-    inodes = (Inode*) malloc(NUMBER_OF_INODES * sizeof(Inode));
-
-    /* Seta linkCount de todos os inodes para inicialmente 1 */
-    for(int i = 0; i < NUMBER_OF_INODES; i++) {
-        inodes[i].linkCount = 1;
+    /* Escreve os bytes 0s nos blocos alocados para guardar inodes */
+    for(int i = 0; i < numInodeBlocks; i++) {
+        block_write(i + INODE_START, &buffer[i * BLOCK_SIZE]);
     }
 
-    /* Define o primeiro i-node como sendo o i-node correspondente ao diretório raiz */
-    inodes[0].type = 1;
-    inodes[0].size = 2 * sizeof(DirectoryItem);
-    inodes[0].direct[0] = DATA_BLOCK_START;
-
-    /* Copia o vetor de i-nodes para a variável buffer e escreve o conteúdo nos blocos alocados para armazenar i-nodes */
-    buffer = realloc(buffer, 22528);
-    bcopy((unsigned char*) inodes, (unsigned char*) buffer, NUMBER_OF_INODES * sizeof(Inode));
-
-    for(int i = INODE_START; i < INODE_END + 1; i++) {
-        block_write(i, &buffer[(i - INODE_START) * 512]);
-    }
+    /* Cria o primeiro inode como sendo o inode correspondente ao diretório raiz */
+    Inode* inode = create_new_inode();
+    inode->type = DIRECTORY;
+    inode->size = 2 * sizeof(DirectoryItem);
+    inode->direct[0] = DATA_BLOCK_START;
+    save_inode(inode, ROOT_DIRECTORY_INODE);
 
     /* Inicializa um vetor de diretórios e insere as entradas '.' e '..' inicialmente como entradas do diretório raiz */
     DirectoryItem* rootDirectory = (DirectoryItem*) malloc(2 * sizeof(DirectoryItem));
-    bcopy((unsigned char*) dirEntry1, (unsigned char*) rootDirectory[0].name, 32);
+    bcopy((unsigned char*) dirEntry1, (unsigned char*) rootDirectory[0].name, MAX_FILE_NAME);
     rootDirectory[0].inode = 0;
-    bcopy((unsigned char*) dirEntry2, (unsigned char*) rootDirectory[1].name, 32);
+    bcopy((unsigned char*) dirEntry2, (unsigned char*) rootDirectory[1].name, MAX_FILE_NAME);
     rootDirectory[1].inode = 0;
 
     /* Escreve no primeiro bloco de dados o diretório raiz */
-    buffer = realloc(buffer, 512);
-    bzero(buffer, 512);
+    buffer = realloc(buffer, BLOCK_SIZE);
+    bzero(buffer, BLOCK_SIZE);
     bcopy((unsigned char*) rootDirectory, (unsigned char*) buffer, 2 * sizeof(DirectoryItem));
     block_write(DATA_BLOCK_START, buffer);
 
+    /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro inode para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos inodes */
+    bzero(buffer, BLOCK_SIZE);
+    set_bit(buffer, 0, 7);
+    save_bitmap(buffer, I_MAP_BLOCK);
+
+    /* Zera os bytes da variável buffer, seta o bit correspondende ao primeiro bloco de dados para 1 (ocupado - diretório raiz) e escreve o buffer no bloco onde fica o mapa de bits dos blocos de dados */
+    bzero(buffer, BLOCK_SIZE);
+    set_bit(buffer, 0, 7);
+    save_bitmap(buffer, D_MAP_BLOCK);
+
     /* Libera memória alocada dinâmicamente */
     free(buffer);
-    free(inodes);
+    free(inode);
     free(rootDirectory);
 
     return 0;
@@ -147,13 +142,13 @@ int fs_open(char *fileName, int flags) {
     directoryItem = get_directory_item(fileName);
 
     /* FS O RDONLY */
-    if(flags == 1) {
+    if(flags == FS_O_RDONLY) {
         /* Verifica se encontrou o arquivo com nome fileName no diretório atual */
         if(directoryItem == NULL) {
             return -1;
         }
     /* FS O WRONLY ou FS O RDWR */
-    } else if(flags == 2 || flags == 3) {
+    } else if(flags == FS_O_WRONLY || flags == FS_O_RDWR) {
         /* Verifica se encontrou o arquivo com nome fileName no diretório atual */
         if(directoryItem == NULL) {
             /* Cria um arquivo no diretório atual caso ele não exista */
@@ -172,7 +167,7 @@ int fs_open(char *fileName, int flags) {
             free(inode);
 
             /* Verifica se é um diretório e retorna um erro em caso afirmativo */
-            if(type == 1) {
+            if(type == DIRECTORY) {
                 /* Libera memória alocada dinâmicamente */
                 free(directoryItem);
                 return -1;
@@ -248,42 +243,32 @@ int fs_close(int fd) {
     /* Decrementa o número de descritores de arquivos */
     numFileDescriptors--;
 
-    printf("There are currently %d links to the file!\n", inode->linkCount);
-
     /* Verifica se o número de referências para o arquivo é 0 */
     if(inode->linkCount < 1) {
-        /* Chama função fs_unlink para remover arquivo, pois não há referências para ele */
-        printf("unlink arg count = %d\n", unlink_addarg_count);
         /* Modifica a contagem de argumentos adicionais da função fs_unlink para executar um unlink */
         unlink_addarg_count = 1;
-        printf("unlink arg count = %d\n", unlink_addarg_count);
-        printf("directory inode = %d\n", directoryInode);
+        /* Chama função fs_unlink para remover arquivo, pois não há referências para ele */
         fs_unlink(filename, directoryInode);
-        printf("unlink arg count = %d\n", unlink_addarg_count);
         /* Modifica a contagem de argumentos adicionais da função fs_unlink para o valor padrão 0 */
         unlink_addarg_count = 0;
-        printf("unlink arg count = %d\n", unlink_addarg_count);
     }
 
     /* Libera memória alocada dinâmicamente */
     free(inode);
 
-    printf("Closed successfully!\n");
-
     return 0;
 }
 
-int fs_read( int fd, char *buf, int count) {
+int fs_read(int fd, char *buf, int count) {
     /* Verifica o modo do descritor de arquivos e retorna erro se não é compatível com a operação a ser realizada */
     if(fdTable[fd]->mode != FS_O_RDONLY && fdTable[fd]->mode != FS_O_RDWR)
         return -1;
 
     /* Recupera inode através do descritor de arquivos */
     Inode* inode = find_inode(fdTable[fd]->inode);
-    printf("%d\n", inode->size);
 
     /* Verifica se o inode se trata de um diretório */
-    if(inode->type != 0)
+    if(inode->type != FILE_TYPE)
         return -1;
 
     /* Verifica se a posição do ponteiro está depois do fim do arquivo */
@@ -302,18 +287,16 @@ int fs_read( int fd, char *buf, int count) {
     }
 
     /* Calcula os blocos de inicio e término da leitura e byte de início */
-    int blockStart = fdTable[fd]->offset / 512;
-    int blockEnd = (fdTable[fd]->offset + bytesCount) / 512;
-    int byteStart = fdTable[fd]->offset % 512;
-
-    printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
+    int blockStart = fdTable[fd]->offset / BLOCK_SIZE;
+    int blockEnd = (fdTable[fd]->offset + bytesCount - 1) / BLOCK_SIZE;
+    int byteStart = fdTable[fd]->offset % BLOCK_SIZE;
 
     /* Aloca memória para a variável buffer */
-    buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
+    buffer = (char*) malloc((blockEnd - blockStart + 1) * BLOCK_SIZE * sizeof(char));
 
     /* Lê os blocos de dados e guarda no buffer */
     for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+        block_read(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Copia bytesCount bytes para a variável buf */
@@ -336,10 +319,9 @@ int fs_write(int fd, char *buf, int count) {
 
     /* Recupera inode através do descritor de arquivos */
     Inode* inode = find_inode(fdTable[fd]->inode);
-    printf("%d\n", inode->size);
 
     /* Verifica se o inode se trata de um diretório */
-    if(inode->type != 0)
+    if(inode->type != FILE_TYPE)
         return -1;
 
     /* Verifica se o ponteiro de escrita está após o fim do arquivo */
@@ -349,14 +331,12 @@ int fs_write(int fd, char *buf, int count) {
     }
 
     /* Calcula os blocos de inicio e término da escrita e byte de início */
-    int blockStart = fdTable[fd]->offset / 512;
-    int blockEnd = (fdTable[fd]->offset + count) / 512;
-    int byteStart = fdTable[fd]->offset % 512;
-
-    printf("%d %d %d %d\n", count, blockStart, blockEnd, byteStart);
+    int blockStart = fdTable[fd]->offset / BLOCK_SIZE;
+    int blockEnd = (fdTable[fd]->offset + count - 1) / BLOCK_SIZE;
+    int byteStart = fdTable[fd]->offset % BLOCK_SIZE;
 
     /* Carrega mapa de bits dos blocos de dados */
-    char dmap[251];
+    char dmap[D_MAP_SIZE];
     load_bitmap(dmap, D_MAP_BLOCK);
 
     /* Variáveis de controle */
@@ -365,7 +345,6 @@ int fs_write(int fd, char *buf, int count) {
 
     /* Aloca blocos de dados para a escrita */
     for(int i = blockStart; i < blockEnd + 1 && i < (sizeof(inode->direct) / 4); i++) {
-        printf(">>>%d\n", inode->direct[i]);
         /* Verifica se não há um bloco de dados alocado ni i-ésimo ponteiro direto */
         if(inode->direct[i] == -1) {
             /* Busca um bloco de dados livre */
@@ -377,8 +356,6 @@ int fs_write(int fd, char *buf, int count) {
 
             /* Atualiza o i-ésimo ponteiro direto com o número do bloco de dados livre encontrado */
             inode->direct[i] = blockNumber + DATA_BLOCK_START;
-
-            printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
         }
 
         /* Incrementa a quantidade de blocos necessários para realizar a escrita */
@@ -386,14 +363,14 @@ int fs_write(int fd, char *buf, int count) {
     }
 
     /* Calcula quantos bytes estão disponíveis para escrita */
-    int bytesCount = blockCount * 512 - byteStart;
+    int bytesCount = blockCount * BLOCK_SIZE - byteStart;
 
     /* Aloca memória para a variável buffer */
-    buffer = (char*) malloc(blockCount * 512 * sizeof(char));
+    buffer = (char*) malloc(blockCount * BLOCK_SIZE * sizeof(char));
 
     /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
     for(int i = blockStart; i < blockStart + blockCount; i++) {
-        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+        block_read(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
@@ -407,14 +384,13 @@ int fs_write(int fd, char *buf, int count) {
 
     /* Escreve os bytes do buffer nos blocos de dados correspondente ao do arquivo */
     for(int i = blockStart; i < blockStart + blockCount; i++) {
-        block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
+        block_write(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Libera os blocos de dados sobrando quando o arquivo diminui de tamanho */
     if(!fdTable[fd]->wasTouched) {
-        for(int i = blockStart + blockCount; i < ceil(inode->size / 512.0); i++) {
-            printf("Freeing block number %d\n", inode->direct[i]);
-            unset_bit(dmap, (inode->direct[i] - 47) / 8, (inode->direct[i] - 47) % 8);
+        for(int i = blockStart + blockCount; i < ((inode->size - 1) / BLOCK_SIZE) + 1; i++) {
+            unset_bit(dmap, (inode->direct[i] - DATA_BLOCK_START) / 8, (inode->direct[i] - DATA_BLOCK_START) % 8);
             inode->direct[i] = -1;
         }
     }
@@ -431,9 +407,6 @@ int fs_write(int fd, char *buf, int count) {
     /* Atualiza variável para dizer que já foi realizado alguma operação de escrita no arquivo */
     fdTable[fd]->wasTouched = 1;
 
-    printf("new file offset after writing: %d\n", fdTable[fd]->offset);
-    printf("new file size after writing: %d\n", inode->size);
-
     /* Salva o mapa de bits dos blocos de dados atualizado */
     save_bitmap(dmap, D_MAP_BLOCK);
     /* Salva o inode atualizado referente ao arquivo onde foi feita a escrita */
@@ -445,21 +418,22 @@ int fs_write(int fd, char *buf, int count) {
 
     /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
     if(count <= bytesCount) {
-        printf("wrote %d bytes\n", count);
         return count;
     } else {
-        printf("wrote %d bytes\n", bytesCount);
         return bytesCount;
     }
 }
 
 int fs_lseek(int fd, int offset) {
+    /* Verifica se o descritor está aberto */
+    if(fdTable[fd] == NULL)
+        return -1;
+
     /* Recupera inode através do descritor de arquivos */
     Inode* inode = find_inode(fdTable[fd]->inode);
-    printf("%d\n", inode->size);
 
     /* Verifica se o inode se trata de um diretório */
-    if(inode->type != 0)
+    if(inode->type != FILE_TYPE)
         return -1;
 
     /* Atualiza o deslocamento do arquivo aberto */
@@ -474,15 +448,14 @@ int fs_lseek(int fd, int offset) {
 
 int fs_mkdir(char *fileName) {
     /* Verifica se já existe um diretório com o mesmo nome */
-    if(item_exists(fileName)) {
+    if(item_exists(fileName))
         return -1;
-    }
 
     /* Aloca memória para variável buffer */
-    buffer = (char*) malloc(512 * sizeof(char));
+    buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
 
     /* Declara vetor de bits para guardar o vetor de bits dos inodes */
-    char imap[64];
+    char imap[I_MAP_SIZE];
     load_bitmap(imap, I_MAP_BLOCK);
 
     /* Encontra inode livre */
@@ -492,13 +465,11 @@ int fs_mkdir(char *fileName) {
     if(inodeNumber == -1)
         return -1;
 
-    printf("inode number = %d is free\n", inodeNumber);
-
     /* Salva mapa de bits atualizado no disco */
     save_bitmap(imap, I_MAP_BLOCK);
 
     /* Declara vetor de bits para guardar o vetor de bits dos blocos de dados */
-    char dmap[251];
+    char dmap[D_MAP_SIZE];
     load_bitmap(dmap, D_MAP_BLOCK);
 
     /* Encontra bloco de dados livre */
@@ -508,32 +479,27 @@ int fs_mkdir(char *fileName) {
     if(blockNumber == -1)
         return -1;
 
-    printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
-
     /* Salva mapa de bits atualizado no disco */
     save_bitmap(dmap, D_MAP_BLOCK);
 
     /* Cria as entradas . e .. de um diretório vazio */
     DirectoryItem* newDirectory = (DirectoryItem*) malloc(2 * sizeof(DirectoryItem));
-    bcopy((unsigned char*) dirEntry1, (unsigned char*) newDirectory[0].name, 32);
+    bcopy((unsigned char*) dirEntry1, (unsigned char*) newDirectory[0].name, MAX_FILE_NAME);
     newDirectory[0].inode = inodeNumber;
-    bcopy((unsigned char*) dirEntry2, (unsigned char*) newDirectory[1].name, 32);
+    bcopy((unsigned char*) dirEntry2, (unsigned char*) newDirectory[1].name, MAX_FILE_NAME);
     newDirectory[1].inode = superblock->workingDirectory;
 
     /* Escreve no disco o diretório criado no bloco correspondente ao diretório */
-    bzero(buffer, 512);
+    bzero(buffer, BLOCK_SIZE);
     bcopy((unsigned char*) newDirectory, (unsigned char*) buffer, 2 * sizeof(DirectoryItem));
     block_write(blockNumber + DATA_BLOCK_START, buffer);
 
     free(buffer);
 
-    printf(". inode = %d, .. inode = %d\n", newDirectory[0].inode, newDirectory[1].inode);
-
     /* Aloca inode para o novo diretório criado */
-    Inode* newInode = (Inode*) malloc(sizeof(Inode));
-    newInode->type = 1;
+    Inode* newInode = create_new_inode();
+    newInode->type = DIRECTORY;
     newInode->size = 2 * sizeof(DirectoryItem);
-    newInode->linkCount = 1;
     newInode->direct[0] = blockNumber + DATA_BLOCK_START;
 
     /* Salva o inode correspondente ao diretório no disco */
@@ -547,36 +513,34 @@ int fs_mkdir(char *fileName) {
         return -1;
 
     /* Calcula o bloco de inicio e termino correspondente ao diretório atual */
-    int blockStart = inode->size / 512;
-    int blockEnd = (inode->size + sizeof(DirectoryItem)) / 512;
-    int byteStart = inode->size % 512;
+    int blockStart = inode->size / BLOCK_SIZE;
+    int blockEnd = (inode->size + sizeof(DirectoryItem) - 1) / BLOCK_SIZE;
+    int byteStart = inode->size % BLOCK_SIZE;
 
-    buffer = (char*) malloc((blockEnd - blockStart + 1) * 512 * sizeof(char));
-
-    printf("***%d %d %d\n", blockStart, blockEnd, byteStart);
+    /* Aloca memória para ler os bytes do diretório */
+    buffer = (char*) malloc((blockEnd - blockStart + 1) * BLOCK_SIZE * sizeof(char));
 
     /* Lê os blocos onde o diretório atual está salvo */
     for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_read(inode->direct[i], &buffer[(i - blockStart) * 512]);
+        block_read(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Cria entrada do novo diretório */
     DirectoryItem* directory = (DirectoryItem*) malloc(sizeof(DirectoryItem));
     bcopy((unsigned char*) fileName, (unsigned char*) directory->name, strlen(fileName) + 1);
     directory->inode = inodeNumber;
-    // printf("***%s is allocated to inode number %d\n", directory->name, directory->inode);
 
     /* Guarda o novo diretório criado dentro do bloco de dados do diretório atual */
     bcopy((unsigned char*) directory, (unsigned char*) &buffer[byteStart], sizeof(DirectoryItem));
     for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_write(inode->direct[i], &buffer[(i - blockStart) * 512]);
+        block_write(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
+    /* Atualiza o tamanho do diretório atual */
     inode->size += sizeof(DirectoryItem);
     save_inode(inode, superblock->workingDirectory);
 
     /* Libera memória alocada dinamicamente */
-    printf("Freeing...\n");
     free(buffer);
     free(directory);
     free(newDirectory);
@@ -588,14 +552,12 @@ int fs_mkdir(char *fileName) {
 
 int fs_rmdir( char *fileName) {
     /* Verifica se o diretório existe */
-    if(!item_exists(fileName)) {
+    if(!item_exists(fileName))
         return -1;
-    }
     
     /* Certifica-se de que não seja os diretórios . ou .. */
-    if(same_string(fileName, ".") || same_string(fileName, "..")) {
+    if(same_string(fileName, ".") || same_string(fileName, ".."))
         return -1;
-    }
 
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
@@ -611,31 +573,26 @@ int fs_rmdir( char *fileName) {
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
         /* Verifica se o nome do diretório é o mesmo que está sendo procurado */
         if(same_string(directoryItems[i].name, fileName)) {
-            printf("Deleted\n");
 
             /* Aloca memória para o buffer */
-            buffer = (char*) malloc(512 * sizeof(char));
+            buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
 
             /* Carrega o inode do diretório a ser removido */
             Inode* dirInode = find_inode(directoryItems[i].inode);
 
             /* Verifica se o inode não é de um diretório ou se o diretório não está vazio */
-            if(dirInode->type != 1 || dirInode->size != (2 * sizeof(DirectoryItem)))
+            if(dirInode->type != DIRECTORY || dirInode->size != (2 * sizeof(DirectoryItem)))
                 return -1;
 
-            /* Lê o vetor de bits dos inodes do disco */
-            block_read(I_MAP_BLOCK, buffer);
-
-            /* Carrega o vetor de bits dos inodes do buffer para um vetor */
-            char imap[64];
-            bcopy((unsigned char*) buffer, (unsigned char*) imap, 64);
+            /* Carrega o vetor de bits dos inodes para um vetor */
+            char imap[I_MAP_SIZE];
+            load_bitmap(imap, I_MAP_BLOCK);
             
             /* Seta para 0 o bit correspondente ao inode do diretório a ser removido */
             unset_bit(imap, (directoryItems[i].inode / 8), (directoryItems[i].inode % 8));
 
-            /* Copia o vetor de bits dos inodes modificado de volta para o buffer e escreve de volta no disco */
-            bcopy((unsigned char*) imap, (unsigned char*) buffer, 64);
-            block_write(I_MAP_BLOCK, buffer);
+            /* Copia o vetor de bits dos inodes modificado de volta para o disco */
+            save_bitmap(imap, I_MAP_BLOCK);
 
             /* Move os diretórios uma posição a menos a partir do diretório removido */
             for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
@@ -646,36 +603,34 @@ int fs_rmdir( char *fileName) {
             inode->size -= sizeof(DirectoryItem);
             save_inode(inode, superblock->workingDirectory);
 
+            int numBlocks;
+            
             /* Calcula quantos blocos são necessários para guardar os diretórios restantes */
-            int numBlocks = (inode->size / 512) + 1;
+            numBlocks = ((inode->size - 1) / BLOCK_SIZE) + 1;
 
             /* Copia a lista de diretórios modificada de volta para a variável buffer */
-            buffer = realloc(buffer, numBlocks * 512 * sizeof(char));
+            buffer = realloc(buffer, numBlocks * BLOCK_SIZE * sizeof(char));
             bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, inode->size);
 
             /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
             for(int i = 0; i < numBlocks; i++) {
-                block_write(inode->direct[i], &buffer[i * 512]);
+                block_write(inode->direct[i], &buffer[i * BLOCK_SIZE]);
             }
 
-            /* Lê o vetor de bits dos blocos de dados do disco */
-            block_read(D_MAP_BLOCK, buffer);
-
-            /* Carrega o vetor de bits dos blocos de dados do buffer para um vetor */
-            char dmap[251];
-            bcopy((unsigned char*) buffer, (unsigned char*) dmap, 251);
+            /* Carrega o vetor de bits dos blocos de dados para um vetor */
+            char dmap[D_MAP_SIZE];
+            load_bitmap(dmap, D_MAP_BLOCK);
 
             /* Calcula quantos blocos de dados o diretório removido estava ocupando */
-            numBlocks = (dirInode->size / 512) + 1;
+            numBlocks = ((dirInode->size - 1) / BLOCK_SIZE) + 1;
 
             /* Seta para 0 os bits correspondentes aos blocos de dados do diretório removido */
             for(int i = 0; i < numBlocks; i++) {
-                unset_bit(dmap, (dirInode->direct[i] - 47) / 8, (dirInode->direct[i] - 47) % 8);
+                unset_bit(dmap, (dirInode->direct[i] - DATA_BLOCK_START) / 8, (dirInode->direct[i] - DATA_BLOCK_START) % 8);
             }
             
-            /* Copia o vetor de bits dos blocos de dados modificado de volta para o buffer e escreve de volta no disco */
-            bcopy((unsigned char*) dmap, (unsigned char*) buffer, 251);
-            block_write(D_MAP_BLOCK, buffer);
+            /* Copia o vetor de bits dos blocos de dados modificado de volta para o disco */
+            save_bitmap(dmap, D_MAP_BLOCK);
             
             /* Libera memória alocada dinâmicamente */
             free(buffer);
@@ -698,15 +653,14 @@ int fs_cd(char *dirName) {
     DirectoryItem* directoryItem = get_directory_item(dirName);
 
     /* Verifica se não existe o diretório */
-    if(directoryItem == NULL) {
+    if(directoryItem == NULL)
         return -1;
-    }
 
     /* Recupera o inode do diretório */
     Inode* inode = find_inode(directoryItem->inode);
 
     /* Verifica se realmente é um diretório */
-    if(inode->type != 1)
+    if(inode->type != DIRECTORY)
         return -1;
 
     /* Altera o inode que corresponde ao diretório de trabalho atual no superbloco */
@@ -735,7 +689,7 @@ int fs_link(char *old_fileName, char *new_fileName) {
     Inode* inode = find_inode(directoryItem->inode);
 
     /* Verifica se o inode corresponde a um inode de diretório e caso sim retorna erro */
-    if(inode->type != 0)
+    if(inode->type != FILE_TYPE)
         return -1;
 
     /* Cria um novo item de diretório com número de inode igual ao número do inode do arquivo old_fileName */
@@ -746,15 +700,13 @@ int fs_link(char *old_fileName, char *new_fileName) {
     /* Carrega o inode do diretório atual */
     Inode* workingDirectoryInode = find_inode(superblock->workingDirectory);
 
-    /* Calcula o bloco de inicio e termino correspondente ao diretório atual e opróximo byte livre para ser escrito (byteStart) */
-    int blockStart = workingDirectoryInode->size / 512;
-    int blockEnd = (workingDirectoryInode->size + sizeof(DirectoryItem)) / 512;
-    int byteStart = workingDirectoryInode->size % 512;
-
-    printf("%d %d %d\n", blockStart, blockEnd, byteStart);
+    /* Calcula o bloco de inicio e termino correspondente ao diretório atual e o próximo byte livre para ser escrito (byteStart) */
+    int blockStart = workingDirectoryInode->size / BLOCK_SIZE;
+    int blockEnd = (workingDirectoryInode->size + sizeof(DirectoryItem) - 1) / BLOCK_SIZE;
+    int byteStart = workingDirectoryInode->size % BLOCK_SIZE;
 
     /* Declara vetor de bits para guardar o vetor de bits dos blocos de dados */
-    char dmap[251];
+    char dmap[D_MAP_SIZE];
     load_bitmap(dmap, D_MAP_BLOCK);
 
     /* Variáveis de controle */
@@ -763,8 +715,6 @@ int fs_link(char *old_fileName, char *new_fileName) {
 
     /* Aloca blocos de dados para a escrita */
     for(int i = blockStart; i < blockEnd + 1 && i < (sizeof(workingDirectoryInode->direct) / 4); i++) {
-        printf(">>>%d\n", workingDirectoryInode->direct[i]);
-
         /* Verifica se não há um bloco de dados alocado ni i-ésimo ponteiro direto */
         if(workingDirectoryInode->direct[i] == -1) {
             /* Busca um bloco de dados livre */
@@ -776,8 +726,6 @@ int fs_link(char *old_fileName, char *new_fileName) {
 
             /* Atualiza o i-ésimo ponteiro direto com o número do bloco de dados livre encontrado */
             workingDirectoryInode->direct[i] = blockNumber + DATA_BLOCK_START;
-
-            printf("block number = %d is free\n", blockNumber + DATA_BLOCK_START);
         }
 
         /* Incrementa a quantidade de blocos necessários para realizar a escrita */
@@ -785,14 +733,14 @@ int fs_link(char *old_fileName, char *new_fileName) {
     }
 
     /* Calcula quantos bytes estão disponíveis para escrita */
-    int bytesCount = blockCount * 512 - byteStart;
+    int bytesCount = blockCount * BLOCK_SIZE - byteStart;
 
     /* Aloca memória para a variável buffer */
-    buffer = (char*) malloc(blockCount * 512 * sizeof(char));
+    buffer = (char*) malloc(blockCount * BLOCK_SIZE * sizeof(char));
 
     /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
     for(int i = blockStart; i < blockStart + blockCount; i++) {
-        block_read(workingDirectoryInode->direct[i], &buffer[(i - blockStart) * 512]);
+        block_read(workingDirectoryInode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Verifica se a quantidade de bytes a ser escrita é menor ou igual a quantidade de bytes disponíveis */
@@ -806,15 +754,13 @@ int fs_link(char *old_fileName, char *new_fileName) {
 
     /* Escreve os bytes do buffer nos blocos de dados correspondente ao do arquivo */
     for(int i = blockStart; i < blockStart + blockCount; i++) {
-        block_write(workingDirectoryInode->direct[i], &buffer[(i - blockStart) * 512]);
+        block_write(workingDirectoryInode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
     }
 
     /* Atualiza o tamanho do diretório atual */
     workingDirectoryInode->size += sizeof(DirectoryItem);
     /* Incrementa a quantidade de soft links do arquivo para o qual está sendo criado um novo link */
     inode->linkCount++;
-
-    printf("new file size after writing: %d\n", workingDirectoryInode->size);
 
     /* Salva o mapa de bits dos blocos de dados atualizado */
     save_bitmap(dmap, D_MAP_BLOCK);
@@ -834,7 +780,6 @@ int fs_link(char *old_fileName, char *new_fileName) {
 }
 
 int fs_unlink(char *fileName, ...) {
-    printf("unlink add arg count = %d\n", unlink_addarg_count);
     /* Variável utilizada para guardar o número do inode do diretório onde o arquivo que será removido pertence */
     int dirInodeNumber;
 
@@ -847,8 +792,7 @@ int fs_unlink(char *fileName, ...) {
         va_list args;
 
         va_start(args, fileName);
-        dirInodeNumber = va_arg(args, int);
-        printf("dir inode number = %d\n", dirInodeNumber);  
+        dirInodeNumber = va_arg(args, int); 
 
         va_end(args);
     }
@@ -860,13 +804,11 @@ int fs_unlink(char *fileName, ...) {
     if(directoryItem == NULL)
         return -1;
 
-    printf("inode number = %d\n", directoryItem->inode);
-
     /* Recupera o inode referente ao arquivo para o qual será excluido um soft link */
     Inode* softLinkInode = find_inode(directoryItem->inode);
 
     /* Verifica se o inode corresponde a um inode de diretório e caso sim retorna erro */
-    if(softLinkInode->type != 0)
+    if(softLinkInode->type != FILE_TYPE)
         return -1;
 
     /* Verifica se há um descritor de arquivos aberto e se o arquivo só tem uma referência para ele */
@@ -898,16 +840,12 @@ int fs_unlink(char *fileName, ...) {
     for(int i = 0; i < (inode->size / sizeof(DirectoryItem)); i++) {
         /* Verifica se o nome do arquivo é o mesmo que está sendo procurado */
         if(same_string(directoryItems[i].name, fileName)) {
-            printf("Soft Deleted\n");
-
             int numBlocks;
-
-            printf("There are currently %d links to the file!\n", softLinkInode->linkCount);
 
             /* Verifica se há somente uma referência para o arquivo */
             if(softLinkInode->linkCount <= 1) {
                 /* Carrega o vetor de bits dos inodes para um vetor */
-                char imap[64];
+                char imap[I_MAP_SIZE];
                 load_bitmap(imap, I_MAP_BLOCK);
 
                 /* Seta para 0 o bit correspondente ao inode do arquivo a ser removido */
@@ -917,15 +855,15 @@ int fs_unlink(char *fileName, ...) {
                 save_bitmap(imap, I_MAP_BLOCK);
 
                 /* Carrega o vetor de bits dos blocos de dados para um vetor */
-                char dmap[251];
+                char dmap[D_MAP_SIZE];
                 load_bitmap(dmap, D_MAP_BLOCK);
 
                 /* Calcula quantos blocos de dados o arquivo removido estava ocupando */
-                numBlocks = (int) ceil((double) softLinkInode->size / 512);
+                numBlocks = (int) ceil((double) softLinkInode->size / BLOCK_SIZE);
 
                 /* Seta para 0 os bits correspondentes aos blocos de dados do arquivo removido */
                 for(int i = 0; i < numBlocks; i++) {
-                    unset_bit(dmap, (softLinkInode->direct[i] - 47) / 8, (softLinkInode->direct[i] - 47) % 8);
+                    unset_bit(dmap, (softLinkInode->direct[i] - DATA_BLOCK_START) / 8, (softLinkInode->direct[i] - DATA_BLOCK_START) % 8);
                 }
 
                 /* Salva o vetor de bits dos blocos de dados atualizado */
@@ -935,11 +873,7 @@ int fs_unlink(char *fileName, ...) {
                 softLinkInode->linkCount--;
                 /* Salva o inode atualizado do arquivo para o qual foi decrementado uma referência */
                 save_inode(softLinkInode, directoryItems[i].inode);
-
-                printf("Updated inode %d link count!\n", directoryItems[i].inode);
             }
-
-            printf("There are currently %d links to the file!\n", softLinkInode->linkCount);
 
             /* Move os itens uma posição a menos a partir do arquivo removido */
             for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
@@ -951,15 +885,15 @@ int fs_unlink(char *fileName, ...) {
             save_inode(inode, dirInodeNumber);
 
             /* Calcula quantos blocos são necessários para guardar os diretórios/arquivos restantes */
-            numBlocks = (inode->size / 512) + 1;
+            numBlocks = (int) ceil((double) inode->size / BLOCK_SIZE);
 
             /* Copia a lista de diretórios/arquivos modificada de volta para a variável buffer */
-            buffer = (char*) malloc(numBlocks * 512 * sizeof(char));
+            buffer = (char*) malloc(numBlocks * BLOCK_SIZE * sizeof(char));
             bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, inode->size);
 
             /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
             for(int i = 0; i < numBlocks; i++) {
-                block_write(inode->direct[i], &buffer[i * 512]);
+                block_write(inode->direct[i], &buffer[i * BLOCK_SIZE]);
             }
             
             /* Libera memória alocada dinâmicamente */
@@ -992,10 +926,10 @@ int fs_stat( char *fileName, fileStat *buf) {
 
     /* Copia as informações sobre o arquivo/diretório para o buffer passado por referência */
     buf->inodeNo = directoryItem->inode;
-    buf->type = inode->type == 0 ? FILE_TYPE : DIRECTORY;
+    buf->type = inode->type;
     buf->links = inode->linkCount;
     buf->size = inode->size;
-    buf->numBlocks = ceil((double) inode->size / 512);
+    buf->numBlocks = ceil((double) inode->size / BLOCK_SIZE);
 
     return 0;
 }
@@ -1003,6 +937,7 @@ int fs_stat( char *fileName, fileStat *buf) {
 int fs_ls() {
     /* Recupera o inode do diretório atual */
     Inode* inode = find_inode(superblock->workingDirectory);
+
     /* Recupera a lista de diretórios dentro do diretório atual */
     DirectoryItem* directoryItems = get_directory_items(superblock->workingDirectory);
 
@@ -1019,13 +954,14 @@ int fs_ls() {
         itemInode = find_inode(directoryItems[i].inode);
 
         /* Muda a cor do texto para nomes de diretórios */
-        if(itemInode->type == 1)
+        if(itemInode->type == DIRECTORY)
             printf("\033[1;34m");
 
+        /* Imprime nomes dos arquivos/diretórios */
         printf("%-3d %-3d %-32s\n", directoryItems[i].inode, itemInode->linkCount, directoryItems[i].name);
 
         /* Retaura a cor do texto padrão após mudar a cor para nomes de diretórios */
-        if(itemInode->type == 1)
+        if(itemInode->type == DIRECTORY)
             printf("\033[0m");
 
         /* Libera memória alocada dinâmicamente */

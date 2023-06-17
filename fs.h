@@ -12,7 +12,10 @@
 #define I_MAP_BLOCK 1
 #define D_MAP_BLOCK 2
 #define ROOT_DIRECTORY_INODE 0
+#define SUPERBLOCK_BLOCK_NUMBER 0
 #define FD_TABLE_SIZE 5
+#define I_MAP_SIZE (int) ceil((double) NUMBER_OF_INODES / 8)
+#define D_MAP_SIZE (int) ceil((double) NUMBER_OF_DATA_BLOCKS / 8)
 
 void fs_init( void);
 int fs_mkfs( void);
