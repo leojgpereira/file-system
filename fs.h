@@ -4,18 +4,17 @@
 #define FS_SIZE 2048
 
 #define MAGIC_NUMBER "!CFS"
-#define NUMBER_OF_INODES 512
-#define NUMBER_OF_DATA_BLOCKS 2001
-#define INODE_START 3
-#define INODE_END 46
-#define DATA_BLOCK_START 47
-#define I_MAP_BLOCK 1
-#define D_MAP_BLOCK 2
-#define ROOT_DIRECTORY_INODE 0
 #define SUPERBLOCK_BLOCK_NUMBER 0
-#define FD_TABLE_SIZE 5
-#define I_MAP_SIZE (int) ceil((double) NUMBER_OF_INODES / 8)
-#define D_MAP_SIZE (int) ceil((double) NUMBER_OF_DATA_BLOCKS / 8)
+#define NUMBER_OF_INODES superblock->numberOfInodes
+#define NUMBER_OF_DATA_BLOCKS superblock->numberOfDataBlocks
+#define I_MAP_BLOCK superblock->iMapStart
+#define D_MAP_BLOCK superblock->dMapStart
+#define INODE_START superblock->inodeStart
+#define DATA_BLOCK_START superblock->dataBlockStart
+#define ROOT_DIRECTORY_INODE superblock->workingDirectory
+#define FD_TABLE_SIZE superblock->fdTableSize
+#define I_MAP_SIZE ((int) ceil((double) NUMBER_OF_INODES / 8))
+#define D_MAP_SIZE ((int) ceil((double) NUMBER_OF_DATA_BLOCKS / 8))
 
 void fs_init( void);
 int fs_mkfs( void);
@@ -45,13 +44,14 @@ typedef struct __attribute__((packed)) {
     int dMapStart;
     int inodeStart;
     int dataBlockStart;
+    int fdTableSize;
 } Superblock;
 
 typedef struct __attribute__((packed)) {
     int type;
     int size;
     int linkCount;
-    int direct[8];
+    int direct[10];
 } Inode;
 
 typedef struct __attribute__((packed)) {

@@ -56,19 +56,27 @@ void fs_init(void) {
     /* Cria tabela de descritores de arquivo em memória */
     fdTable = init_fd_table();
     numFileDescriptors = 0;
+
+    printf("***********************************\n");
+    printf("NUMBER_OF_DATA_BLOCKS = %d\n", NUMBER_OF_DATA_BLOCKS);
+    printf("DATA_BLOCK_START = %d\n", DATA_BLOCK_START);
+    printf("I_MAP_SIZE = %d\n", I_MAP_SIZE);
+    printf("D_MAP_SIZE = %d\n", D_MAP_SIZE);
+    printf("***********************************\n\n");
 }
 
 int fs_mkfs(void) {
     /* Inicializa as informações do superbloco */
     bcopy((unsigned char*) MAGIC_NUMBER, (unsigned char*) superblock->magicNumber, 5);
     superblock->diskSize = FS_SIZE;
-    superblock->workingDirectory = ROOT_DIRECTORY_INODE;
-    superblock->numberOfInodes = NUMBER_OF_INODES;
-    superblock->numberOfDataBlocks = NUMBER_OF_DATA_BLOCKS;
-    superblock->iMapStart = I_MAP_BLOCK;
-    superblock->dMapStart = D_MAP_BLOCK;
-    superblock->inodeStart = INODE_START;
-    superblock->dataBlockStart = DATA_BLOCK_START;
+    superblock->numberOfInodes = 512;
+    superblock->workingDirectory = 0;
+    superblock->iMapStart = 1;
+    superblock->dMapStart = 2;
+    superblock->inodeStart = 3;
+    superblock->dataBlockStart = superblock->inodeStart + (int) ceil((double) (superblock->numberOfInodes * sizeof(Inode)) / BLOCK_SIZE);
+    superblock->numberOfDataBlocks = FS_SIZE - superblock->dataBlockStart;
+    superblock->fdTableSize = 10;
 
     /* Aloca memória para a variável buffer */
     buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
