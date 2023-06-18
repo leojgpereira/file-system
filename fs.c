@@ -51,14 +51,18 @@ void fs_init(void) {
     if(!same_string(superblock->magicNumber, MAGIC_NUMBER)) {
         /* Invoca a função responsável por formatar o disco */
         fs_mkfs();
+    } else {
+        /* Cria tabela de descritores de arquivo em memória */
+        fdTable = init_fd_table();
+        numFileDescriptors = 0;
     }
-
-    /* Cria tabela de descritores de arquivo em memória */
-    fdTable = init_fd_table();
-    numFileDescriptors = 0;
 }
 
 int fs_mkfs(void) {
+    /* Limpa conteúdo do arquivo disk */
+    FILE* file = fopen("disk", "w");
+    fclose(file);
+
     /* Inicializa as informações do superbloco */
     bcopy((unsigned char*) MAGIC_NUMBER, (unsigned char*) superblock->magicNumber, 5);
     superblock->diskSize = FS_SIZE;
@@ -69,7 +73,7 @@ int fs_mkfs(void) {
     superblock->inodeStart = 3;
     superblock->dataBlockStart = superblock->inodeStart + (int) ceil((double) (superblock->numberOfInodes * sizeof(Inode)) / BLOCK_SIZE);
     superblock->numberOfDataBlocks = FS_SIZE - superblock->dataBlockStart;
-    superblock->fdTableSize = 10;
+    superblock->fdTableSize = 256;
 
     /* Aloca memória para a variável buffer */
     buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
@@ -121,6 +125,10 @@ int fs_mkfs(void) {
     bzero(buffer, BLOCK_SIZE);
     set_bit(buffer, 0, 7);
     save_bitmap(buffer, D_MAP_BLOCK);
+
+    /* Cria tabela de descritores de arquivo em memória */
+    fdTable = init_fd_table();
+    numFileDescriptors = 0;
 
     /* Libera memória alocada dinâmicamente */
     free(buffer);
@@ -1278,16 +1286,8 @@ int fs_ls() {
         /* Busca o inode referente ao arquivo/diretório */
         itemInode = find_inode(directoryItems[i].inode);
 
-        /* Muda a cor do texto para nomes de diretórios */
-        if(itemInode->type == DIRECTORY)
-            printf("\033[1;34m");
-
         /* Imprime nomes dos arquivos/diretórios */
-        printf("%-32s\n", directoryItems[i].name);
-
-        /* Retaura a cor do texto padrão após mudar a cor para nomes de diretórios */
-        if(itemInode->type == DIRECTORY)
-            printf("\033[0m");
+        printf("%s\n", directoryItems[i].name);
 
         /* Libera memória alocada dinâmicamente */
         free(itemInode);
