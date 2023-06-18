@@ -52,7 +52,12 @@ typedef struct __attribute__((packed)) {
     int size;
     int linkCount;
     int direct[10];
+    int singleIndirect;
 } Inode;
+
+typedef struct __attribute__((packed)) {
+    int singleIndirect[128];
+} AddressBlock;
 
 typedef struct __attribute__((packed)) {
     char name[MAX_FILE_NAME];

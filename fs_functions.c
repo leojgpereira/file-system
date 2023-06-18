@@ -27,23 +27,31 @@ int get_bit(char* bytes, int index, int n) {
 }
 
 void load_bitmap(char* bitmap, int block) {
+    int size;
+
+    /* Define tamanho do vetor de bits */
+    if(block == D_MAP_BLOCK)
+        size = D_MAP_SIZE;
+    else
+        size = I_MAP_SIZE;
+
     /* Aloca memória para variável buffer */
     char* buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
 
     /* Busca o vetor de bits e copia para variável bitmap */
     block_read(block, buffer);
-    bcopy((unsigned char*) buffer, (unsigned char*) bitmap, sizeof(bitmap));
+    bcopy((unsigned char*) buffer, (unsigned char*) bitmap, size);
 
     /* Libera memória alocada para a variável buffer */
     free(buffer);
 }
 
-int find_free_bit_number(char* bitmap) {
+int find_free_bit_number(char* bitmap, int size) {
     /* Variável utilizada para guardar número de um bit livre */
     int bitNumber = -1;
 
     /* Percorre cada byte do vetor de bits */
-    for(int i = 0; i < ((int) ceil((double) NUMBER_OF_INODES / 8)); i++) {
+    for(int i = 0; i < size; i++) {
         /* Percorre cada bit do byte do vetor de bits */
         for(int j = 7; j > -1; j--) {
             /* Descobre o valor de um bit dentro de um byte */
@@ -70,12 +78,20 @@ int find_free_bit_number(char* bitmap) {
 }
 
 void save_bitmap(char* bitmap, int block) {
+    int size;
+
+    /* Define tamanho do vetor de bits */
+    if(block == D_MAP_BLOCK)
+        size = D_MAP_SIZE;
+    else
+        size = I_MAP_SIZE;
+
     /* Aloca memória para variável buffer */
     char* buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
     bzero(buffer, BLOCK_SIZE);
 
     /* Copia vetor de bits para a variável buffer */
-    bcopy((unsigned char*) bitmap, (unsigned char*) buffer, sizeof(bitmap));
+    bcopy((unsigned char*) bitmap, (unsigned char*) buffer, size);
     block_write(block, buffer);
 
     /* Libera memória alocada para a variável buffer */
@@ -286,7 +302,7 @@ DirectoryItem* create_new_file(char* fileName) {
     load_bitmap(imap, I_MAP_BLOCK);
 
     /* Encontra inode livre */
-    int inodeNumber = find_free_bit_number(imap);
+    int inodeNumber = find_free_bit_number(imap, I_MAP_SIZE);
 
     /* Checa se houve sucesso em encontrar um inode livre */
     if(inodeNumber == -1)
@@ -303,6 +319,8 @@ DirectoryItem* create_new_file(char* fileName) {
     for(int i = 0; i < (sizeof(newInode->direct) / 4); i++) {
         newInode->direct[i] = -1;
     }
+
+    newInode->singleIndirect = -1;
 
     /* Salva o inode correspondente ao arquivo no disco */
     save_inode(newInode, inodeNumber);
@@ -363,11 +381,71 @@ int fd_exists(char* fileName) {
     return index;
 }
 
+void read_n_blocks(int addresses[], char* buffer, int blockStart, int blockEnd) {
+    int singleIndirectBlockStart = blockStart;
+
+    for(int i = blockStart; i < blockEnd + 1 && i < 10; i++) {
+        block_read(addresses[i + 1], &buffer[(i - blockStart) * BLOCK_SIZE]);
+
+        singleIndirectBlockStart++;
+    }
+
+    /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
+    for(int i = singleIndirectBlockStart; i < blockEnd + 1 && i < 138; i++) {
+        block_read(addresses[i + 1], &buffer[(i - blockStart) * BLOCK_SIZE]);
+    }
+}
+
+void write_n_blocks(int addresses[], char* buffer, int blockStart, int blockEnd) {
+    int singleIndirectBlockStart = blockStart;
+
+    for(int i = blockStart; i < blockEnd + 1 && i < 10; i++) {
+        block_write(addresses[i + 1], &buffer[(i - blockStart) * BLOCK_SIZE]);
+
+        singleIndirectBlockStart++;
+    }
+
+    /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
+    for(int i = singleIndirectBlockStart; i < blockEnd + 1 && i < 138; i++) {
+        block_write(addresses[i + 1], &buffer[(i - blockStart) * BLOCK_SIZE]);
+    }
+}
+
 void fill_with_zero_bytes(Inode* inode, File* fd) {
     /* Calcula os blocos de inicio e término da escrita e byte de início */
     int blockStart = inode->size / BLOCK_SIZE;
     int blockEnd = (fd->offset - 1) / BLOCK_SIZE;
     int byteStart = inode->size % BLOCK_SIZE;
+
+    /* Vetor para guardar os possíveis números de blocos de dados */
+    int addresses[139];
+
+    /* Inicializa todos com -1 */
+    for(int i = 0; i < 139; i++)
+        addresses[i] = -1;
+
+    /* Atribui a primeira ao número do bloco do single indirect */
+    addresses[0] = inode->singleIndirect;
+
+    /* Copia os números dos blocos de dados diretos */
+    for(int i = 1; i < 11; i++)
+        addresses[i] = inode->direct[i - 1];
+
+    /* Copia os números dos blocos de dados indiretos simples */
+    if(inode->singleIndirect != -1) {
+        AddressBlock* addressBlock = (AddressBlock*) malloc(sizeof(AddressBlock));
+        char* buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
+
+        block_read(inode->singleIndirect, buffer);
+
+        bcopy((unsigned char*) buffer, (unsigned char*) addressBlock, sizeof(AddressBlock));
+
+        for(int i = 11; i < 139; i++)
+            addresses[i] = addressBlock->singleIndirect[i - 11];
+
+        free(buffer);
+        free(addressBlock);
+    }
 
     /* Carrega mapa de bits dos blocos de dados */
     char dmap[D_MAP_SIZE];
@@ -378,18 +456,25 @@ void fill_with_zero_bytes(Inode* inode, File* fd) {
     int blockCount = 0;
 
     /* Aloca blocos de dados para a escrita */
-    for(int i = blockStart; i < blockEnd + 1 && i < (sizeof(inode->direct) / 4); i++) {
+    for(int i = blockStart; i < blockEnd + 1 && i < 138; i++) {
         /* Verifica se não há um bloco de dados alocado ni i-ésimo ponteiro direto */
-        if(inode->direct[i] == -1) {
+        if(addresses[i + 1] == -1) {
             /* Busca um bloco de dados livre */
-            blockNumber = find_free_bit_number(dmap);
+            blockNumber = find_free_bit_number(dmap, D_MAP_SIZE);
 
             /* Verifica se foi possível encontrar um bloco de dados disponível */
             if(blockNumber == -1)
                 break;
 
-            /* Atualiza o i-ésimo ponteiro direto com o número do bloco de dados livre encontrado */
-            inode->direct[i] = blockNumber + DATA_BLOCK_START;
+            /* Verifica se está sendo alocado um bloco para o single indirect */
+            if(i == 10 && addresses[0] == -1) {
+                addresses[0] = blockNumber + DATA_BLOCK_START;
+                i--;
+                blockCount--;
+            } else {
+                /* Atualiza o i-ésimo ponteiro com o número do bloco de dados livre encontrado */
+                addresses[i + 1] = blockNumber + DATA_BLOCK_START;
+            }
         }
 
         /* Incrementa a quantidade de blocos necessários para realizar a escrita */
@@ -403,26 +488,58 @@ void fill_with_zero_bytes(Inode* inode, File* fd) {
     char* buffer = (char*) malloc(blockCount * BLOCK_SIZE * sizeof(char));
 
     /* Lê os blocos de dados onde será feita a escrita e guarda no buffer */
-    for(int i = blockStart; i < blockStart + blockCount; i++) {
-        block_read(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
-    }
+    read_n_blocks(addresses, buffer, blockStart, blockEnd);
 
     bzero(&buffer[byteStart], bytesCount);
 
     /* Escreve os bytes do buffer nos blocos de dados correspondente ao do arquivo */
-    for(int i = blockStart; i < blockStart + blockCount; i++) {
-        block_write(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
+    write_n_blocks(addresses, buffer, blockStart, blockEnd);
+
+    /* Libera memória alocada dinâmicamente */
+    free(buffer);
+
+    int additionalBytes = 0;
+
+    /* Adiciona BLOCK_SIZE bytes se o arquivo passou a ter um bloco indireto */
+    if(inode->singleIndirect == -1 && addresses[0] != -1)
+        additionalBytes = BLOCK_SIZE;
+
+    /* Atualiza o valor do bloco que contém os ponteiros indiretos */
+    inode->singleIndirect = addresses[0];
+
+    /* Atualiza os blocos de dados diretos */
+    for(int i = 1; i < 11; i++)
+        inode->direct[i - 1] = addresses[i];
+
+    /* Atualiza os blocos de dados indiretos */
+    if(inode->singleIndirect != -1) {
+        AddressBlock* addressBlock = (AddressBlock*) malloc(sizeof(AddressBlock));
+        char* buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
+
+        for(int i = 11; i < 139; i++)
+            addressBlock->singleIndirect[i - 11] = addresses[i];
+
+        bcopy((unsigned char*) addressBlock, (unsigned char*) buffer, sizeof(AddressBlock));
+
+        block_write(inode->singleIndirect, buffer);
+
+        free(buffer);
+        free(addressBlock);
     }
 
-    int count = fd->offset - inode->size;
+    /* Calcula o número esperado de bytes */
+    int expected = fd->offset - inode->size;
 
-    if(count <= bytesCount) {
+    /* Verifica se foi escrito o número esperado de bytes */
+    if(expected <= bytesCount) {
         inode->size = fd->offset;
     } else {
         inode->size += bytesCount;
     }
 
+    /* Soma bytes adicional (bloco indireto) ao tamanho do arquivo */
+    inode->size += additionalBytes;
+
+    /* Salva mapa de bits dos blocos de dados */
     save_bitmap(dmap, D_MAP_BLOCK);
-    
-    free(buffer);
 }
