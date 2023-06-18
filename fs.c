@@ -56,13 +56,6 @@ void fs_init(void) {
     /* Cria tabela de descritores de arquivo em memória */
     fdTable = init_fd_table();
     numFileDescriptors = 0;
-
-    printf("***********************************\n");
-    printf("NUMBER_OF_DATA_BLOCKS = %d\n", NUMBER_OF_DATA_BLOCKS);
-    printf("DATA_BLOCK_START = %d\n", DATA_BLOCK_START);
-    printf("I_MAP_SIZE = %d\n", I_MAP_SIZE);
-    printf("D_MAP_SIZE = %d\n", D_MAP_SIZE);
-    printf("***********************************\n\n");
 }
 
 int fs_mkfs(void) {
