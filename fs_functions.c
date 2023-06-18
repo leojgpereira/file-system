@@ -138,6 +138,8 @@ Inode* create_new_inode() {
     
     /* Define o valor inicial da contagem de links para 1 */
     inode->linkCount = 1;
+    /* Desabilita uso dos blocos indiretos inicialmente */
+    inode->singleIndirect = -1;
 
     /* Retorna um ponteiro para o inode criado */
     return inode;

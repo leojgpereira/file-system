@@ -647,18 +647,86 @@ int fs_mkdir(char *fileName) {
     if(inode == NULL)
         return -1;
 
+    int size;
+
+    /* Recupera tamanho do arquivo (sem contar bloco de dados para endereços) */
+    if(inode->singleIndirect == -1)
+        size = inode->size;
+    else
+        size = inode->size - BLOCK_SIZE;
+
     /* Calcula o bloco de inicio e termino correspondente ao diretório atual */
-    int blockStart = inode->size / BLOCK_SIZE;
-    int blockEnd = (inode->size + sizeof(DirectoryItem) - 1) / BLOCK_SIZE;
-    int byteStart = inode->size % BLOCK_SIZE;
+    int blockStart = size / BLOCK_SIZE;
+    int blockEnd = (size + sizeof(DirectoryItem) - 1) / BLOCK_SIZE;
+    int byteStart = size % BLOCK_SIZE;
+
+    /* Vetor para guardar os possíveis números de blocos de dados */
+    int addresses[139];
+
+    /* Inicializa todos com -1 */
+    for(int i = 0; i < 139; i++)
+        addresses[i] = -1;
+
+    /* Atribui a primeira ao número do bloco do single indirect */
+    addresses[0] = inode->singleIndirect;
+
+    /* Copia os números dos blocos de dados diretos */
+    for(int i = 1; i < 11; i++)
+        addresses[i] = inode->direct[i - 1];
+
+    /* Copia os números dos blocos de dados indiretos simples */
+    if(inode->singleIndirect != -1) {
+        AddressBlock* addressBlock = (AddressBlock*) malloc(sizeof(AddressBlock));
+        buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
+
+        block_read(inode->singleIndirect, buffer);
+
+        bcopy((unsigned char*) buffer, (unsigned char*) addressBlock, sizeof(AddressBlock));
+
+        for(int i = 11; i < 139; i++)
+            addresses[i] = addressBlock->singleIndirect[i - 11];
+
+        free(buffer);
+        free(addressBlock);
+    }
+
+    /* Carrega mapa de bits dos blocos de dados */
+    load_bitmap(dmap, D_MAP_BLOCK);
+
+    /* Variáveis de controle */
+    int blockCount = 0;
+
+    /* Aloca blocos de dados para a escrita */
+    for(int i = blockStart; i < blockEnd + 1 && i < 138; i++) {
+        /* Verifica se não há um bloco de dados alocado ni i-ésimo ponteiro direto */
+        if(addresses[i + 1] == -1) {
+            /* Busca um bloco de dados livre */
+            blockNumber = find_free_bit_number(dmap, D_MAP_SIZE);
+
+            /* Verifica se foi possível encontrar um bloco de dados disponível */
+            if(blockNumber == -1)
+                break;
+
+            /* Verifica se está sendo alocado um bloco para o single indirect */
+            if(i == 10 && addresses[0] == -1) {
+                addresses[0] = blockNumber + DATA_BLOCK_START;
+                i--;
+                blockCount--;
+            } else {
+                /* Atualiza o i-ésimo ponteiro com o número do bloco de dados livre encontrado */
+                addresses[i + 1] = blockNumber + DATA_BLOCK_START;
+            }
+        }
+
+        /* Incrementa a quantidade de blocos necessários para realizar a escrita */
+        blockCount++;
+    }
 
     /* Aloca memória para ler os bytes do diretório */
     buffer = (char*) malloc((blockEnd - blockStart + 1) * BLOCK_SIZE * sizeof(char));
 
     /* Lê os blocos onde o diretório atual está salvo */
-    for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_read(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
-    }
+    read_n_blocks(addresses, buffer, blockStart, blockEnd);
 
     /* Cria entrada do novo diretório */
     DirectoryItem* directory = (DirectoryItem*) malloc(sizeof(DirectoryItem));
@@ -667,16 +735,45 @@ int fs_mkdir(char *fileName) {
 
     /* Guarda o novo diretório criado dentro do bloco de dados do diretório atual */
     bcopy((unsigned char*) directory, (unsigned char*) &buffer[byteStart], sizeof(DirectoryItem));
-    for(int i = blockStart; i < blockEnd + 1; i++) {
-        block_write(inode->direct[i], &buffer[(i - blockStart) * BLOCK_SIZE]);
+
+    write_n_blocks(addresses, buffer, blockStart, blockEnd);
+
+    free(buffer);
+
+    int additionalBytes = 0;
+
+    /* Adiciona BLOCK_SIZE bytes se o arquivo passou a ter um bloco indireto */
+    if(inode->singleIndirect == -1 && addresses[0] != -1)
+        additionalBytes = BLOCK_SIZE;
+
+    /* Atualiza o valor do bloco que contém os ponteiros indiretos */
+    inode->singleIndirect = addresses[0];
+
+    /* Atualiza os blocos de dados diretos */
+    for(int i = 1; i < 11; i++)
+        inode->direct[i - 1] = addresses[i];
+
+    /* Atualiza os blocos de dados indiretos */
+    if(inode->singleIndirect != -1) {
+        AddressBlock* addressBlock = (AddressBlock*) malloc(sizeof(AddressBlock));
+        buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
+
+        for(int i = 11; i < 139; i++)
+            addressBlock->singleIndirect[i - 11] = addresses[i];
+
+        bcopy((unsigned char*) addressBlock, (unsigned char*) buffer, sizeof(AddressBlock));
+
+        block_write(inode->singleIndirect, buffer);
+
+        free(buffer);
+        free(addressBlock);
     }
 
     /* Atualiza o tamanho do diretório atual */
-    inode->size += sizeof(DirectoryItem);
+    inode->size += sizeof(DirectoryItem) + additionalBytes;
     save_inode(inode, superblock->workingDirectory);
 
     /* Libera memória alocada dinamicamente */
-    free(buffer);
     free(directory);
     free(newDirectory);
     free(newInode);
@@ -709,9 +806,6 @@ int fs_rmdir( char *fileName) {
         /* Verifica se o nome do diretório é o mesmo que está sendo procurado */
         if(same_string(directoryItems[i].name, fileName)) {
 
-            /* Aloca memória para o buffer */
-            buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
-
             /* Carrega o inode do diretório a ser removido */
             Inode* dirInode = find_inode(directoryItems[i].inode);
 
@@ -729,32 +823,85 @@ int fs_rmdir( char *fileName) {
             /* Copia o vetor de bits dos inodes modificado de volta para o disco */
             save_bitmap(imap, I_MAP_BLOCK);
 
+            /* Vetor para guardar os possíveis números de blocos de dados */
+            int addresses[139];
+
+            /* Inicializa todos com -1 */
+            for(int i = 0; i < 139; i++)
+                addresses[i] = -1;
+
+            /* Atribui a primeira ao número do bloco do single indirect */
+            addresses[0] = inode->singleIndirect;
+
+            /* Copia os números dos blocos de dados diretos */
+            for(int i = 1; i < 11; i++)
+                addresses[i] = inode->direct[i - 1];
+
+            /* Copia os números dos blocos de dados indiretos simples */
+            if(inode->singleIndirect != -1) {
+                AddressBlock* addressBlock = (AddressBlock*) malloc(sizeof(AddressBlock));
+                buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
+
+                block_read(inode->singleIndirect, buffer);
+
+                bcopy((unsigned char*) buffer, (unsigned char*) addressBlock, sizeof(AddressBlock));
+
+                for(int i = 11; i < 139; i++)
+                    addresses[i] = addressBlock->singleIndirect[i - 11];
+
+                free(buffer);
+                free(addressBlock);
+            }
+
+            int size;
+
+            /* Recupera tamanho do arquivo (sem contar bloco de dados para endereços) */
+            if(inode->singleIndirect == -1)
+                size = inode->size;
+            else
+                size = inode->size - BLOCK_SIZE;
+
             /* Move os diretórios uma posição a menos a partir do diretório removido */
-            for(int j = i; j < (inode->size / sizeof(DirectoryItem)) - 1; j++) {
+            for(int j = i; j < (size / sizeof(DirectoryItem)) - 1; j++) {
                 directoryItems[j] = directoryItems[j + 1];
             }
 
-            /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
-            inode->size -= sizeof(DirectoryItem);
-            save_inode(inode, superblock->workingDirectory);
-
-            int numBlocks;
-            
-            /* Calcula quantos blocos são necessários para guardar os diretórios restantes */
-            numBlocks = ((inode->size - 1) / BLOCK_SIZE) + 1;
-
-            /* Copia a lista de diretórios modificada de volta para a variável buffer */
-            buffer = realloc(buffer, numBlocks * BLOCK_SIZE * sizeof(char));
-            bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, inode->size);
-
-            /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
-            for(int i = 0; i < numBlocks; i++) {
-                block_write(inode->direct[i], &buffer[i * BLOCK_SIZE]);
-            }
+            /* Calcula quantos blocos de dados o diretório precisa */
+            int numBlocks = (int) ceil((double) (size - sizeof(DirectoryItem) - 1) / BLOCK_SIZE);
 
             /* Carrega o vetor de bits dos blocos de dados para um vetor */
             char dmap[D_MAP_SIZE];
             load_bitmap(dmap, D_MAP_BLOCK);
+
+            /* Seta para 0 os bits correspondentes aos blocos de dados que não serão mais utilizados */
+            for(int i = numBlocks; i < (int) ceil((double) (size - 1) / BLOCK_SIZE); i++) {
+                unset_bit(dmap, (addresses[i + 1] - DATA_BLOCK_START) / 8, (addresses[i + 1] - DATA_BLOCK_START) % 8);
+
+                /* Atualiza vetor de endereços */
+                addresses[i + 1] = -1;
+
+                /* Libera o bloco alocado para pontos indiretos */
+                if(i == 10) {
+                    unset_bit(dmap, (addresses[0] - DATA_BLOCK_START) / 8, (addresses[0] - DATA_BLOCK_START) % 8);
+                    addresses[0] = -1;
+                }
+            }
+
+            int additionalBytes = 0;
+
+            /* Adiciona BLOCK_SIZE bytes se o arquivo passou a ter um bloco indireto */
+            if(inode->singleIndirect != -1 && addresses[0] == -1)
+                additionalBytes = BLOCK_SIZE;
+
+            /* Altera o tamanho do diretório no seu inode e salva no disco o inode */
+            inode->size -= sizeof(DirectoryItem) - additionalBytes;
+
+            /* Copia a lista de diretórios modificada de volta para a variável buffer */
+            buffer = (char*) malloc(numBlocks * BLOCK_SIZE * sizeof(char));
+            bcopy((unsigned char*) directoryItems, (unsigned char*) buffer, (size - sizeof(DirectoryItem)));
+
+            /* Salva no disco o conteúdo da variável buffer nos seus respectivos blocos de dados */
+            write_n_blocks(addresses, buffer, 0, numBlocks - 1);
 
             /* Calcula quantos blocos de dados o diretório removido estava ocupando */
             numBlocks = ((dirInode->size - 1) / BLOCK_SIZE) + 1;
@@ -766,6 +913,9 @@ int fs_rmdir( char *fileName) {
             
             /* Copia o vetor de bits dos blocos de dados modificado de volta para o disco */
             save_bitmap(dmap, D_MAP_BLOCK);
+
+            /* Salva informações do inode */
+            save_inode(inode, superblock->workingDirectory);
             
             /* Libera memória alocada dinâmicamente */
             free(buffer);
