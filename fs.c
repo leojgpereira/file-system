@@ -1290,7 +1290,7 @@ int fs_ls() {
             printf("\033[1;34m");
 
         /* Imprime nomes dos arquivos/diretórios */
-        printf("%-3d %-3d %-32s\n", directoryItems[i].inode, itemInode->linkCount, directoryItems[i].name);
+        printf("%-32s\n", directoryItems[i].name);
 
         /* Retaura a cor do texto padrão após mudar a cor para nomes de diretórios */
         if(itemInode->type == DIRECTORY)
