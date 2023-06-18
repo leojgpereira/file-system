@@ -993,12 +993,59 @@ int fs_unlink(char *fileName, ...) {
                 char dmap[D_MAP_SIZE];
                 load_bitmap(dmap, D_MAP_BLOCK);
 
+                int size;
+
+                /* Recupera tamanho do arquivo (sem contar bloco de dados para endereços) */
+                if(softLinkInode->singleIndirect == -1)
+                    size = softLinkInode->size;
+                else
+                    size = softLinkInode->size - BLOCK_SIZE;
+
                 /* Calcula quantos blocos de dados o arquivo removido estava ocupando */
-                numBlocks = (int) ceil((double) softLinkInode->size / BLOCK_SIZE);
+                numBlocks = (int) ceil((double) size / BLOCK_SIZE);
+
+                /* Vetor para guardar os possíveis números de blocos de dados */
+                int addresses[139];
+
+                /* Inicializa todos com -1 */
+                for(int i = 0; i < 139; i++)
+                    addresses[i] = -1;
+
+                /* Atribui a primeira ao número do bloco do single indirect */
+                addresses[0] = softLinkInode->singleIndirect;
+
+                /* Copia os números dos blocos de dados diretos */
+                for(int i = 1; i < 11; i++)
+                    addresses[i] = softLinkInode->direct[i - 1];
+
+                /* Copia os números dos blocos de dados indiretos simples */
+                if(softLinkInode->singleIndirect != -1) {
+                    AddressBlock* addressBlock = (AddressBlock*) malloc(sizeof(AddressBlock));
+                    buffer = (char*) malloc(BLOCK_SIZE * sizeof(char));
+
+                    block_read(softLinkInode->singleIndirect, buffer);
+
+                    bcopy((unsigned char*) buffer, (unsigned char*) addressBlock, sizeof(AddressBlock));
+
+                    for(int i = 11; i < 139; i++)
+                        addresses[i] = addressBlock->singleIndirect[i - 11];
+
+                    free(buffer);
+                    free(addressBlock);
+                }
 
                 /* Seta para 0 os bits correspondentes aos blocos de dados do arquivo removido */
                 for(int i = 0; i < numBlocks; i++) {
-                    unset_bit(dmap, (softLinkInode->direct[i] - DATA_BLOCK_START) / 8, (softLinkInode->direct[i] - DATA_BLOCK_START) % 8);
+                    unset_bit(dmap, (addresses[i + 1] - DATA_BLOCK_START) / 8, (addresses[i + 1] - DATA_BLOCK_START) % 8);
+
+                    /* Atualiza vetor de endereços */
+                    addresses[i + 1] = -1;
+
+                    /* Libera o bloco alocado para pontos indiretos */
+                    if(i == 10) {
+                        unset_bit(dmap, (addresses[0] - DATA_BLOCK_START) / 8, (addresses[0] - DATA_BLOCK_START) % 8);
+                        addresses[0] = -1;
+                    }
                 }
 
                 /* Salva o vetor de bits dos blocos de dados atualizado */
